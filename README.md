@@ -17,8 +17,8 @@ npm run build
 ## 接入云端（Supabase）
 
 1. 在 https://supabase.com 新建项目。
-2. SQL Editor 中执行 `supabase/migrations/0001_init.sql`。
-3. Authentication → Providers → Email：按需要关闭 “Confirm email”（关闭后学生注册即可直接登录）。
+2. SQL Editor 中依次执行 `supabase/migrations/` 下的所有 SQL 文件。
+3. Authentication → Sign In / Providers → User Signups：关闭 “Confirm email” 并保存（关闭后学生注册即可直接登录；Supabase 自带邮件服务有发信频率限制，开着时学生基本收不到确认邮件）。
 4. 生成 VAPID 密钥：`npx web-push generate-vapid-keys`
 5. 复制 `.env.example` 为 `.env.local`，填入 Project URL、anon key、VAPID 公钥。
 6. 部署 Edge Functions（需要 Supabase CLI）：

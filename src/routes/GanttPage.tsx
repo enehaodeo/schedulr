@@ -1,0 +1,304 @@
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { useRef, useState } from 'react';
+import { Modal } from '../components/Modal';
+import { SortableRow } from '../components/SortableRow';
+import { Tags } from '../components/Tags';
+import { toast } from '../components/toast';
+import { db } from '../db/dexie';
+import { reorder, updateLongTask } from '../db/repo';
+import type { LongTask } from '../db/types';
+import { endDate, fitsDeadline, latestStart } from '../features/longTasks/gantt';
+import { COL, GanttChart } from '../features/longTasks/GanttChart';
+import { LongTaskForm } from '../features/longTasks/LongTaskForm';
+import { PublishDialog } from '../features/public/PublishDialog';
+import { addDaysStr, diffDays, todayStr } from '../lib/dates';
+import { useNow } from '../lib/useNow';
+
+const DAYS = 63;
+
+export async function placeLongTask(task: LongTask, start: string, today: string): Promise<boolean> {
+  if (diffDays(start, today) < 0) {
+    toast('开始日期不能早于今天', 'error');
+    return false;
+  }
+  if (!fitsDeadline(start, task.duration_days, task.deadline)) {
+    toast(`结束时间不能晚于 deadline（最晚 ${latestStart(task.duration_days, task.deadline)} 开始）`, 'error');
+    return false;
+  }
+  await updateLongTask(task.id, { status: 'scheduled', start_date: start });
+  return true;
+}
+
+export default function GanttPage() {
+  const tasks = useLiveQuery(() => db.long_tasks.filter((t) => !t.deleted).toArray(), []) ?? [];
+  const pool = tasks.filter((t) => t.status === 'pool').sort((a, b) => a.sort_order - b.sort_order);
+  const scheduled = tasks
+    .filter((t) => t.status === 'scheduled')
+    .sort((a, b) => a.start_date!.localeCompare(b.start_date!) || a.sort_order - b.sort_order);
+
+  const now = useNow(60_000);
+  const today = todayStr(now);
+  const [viewStart, setViewStart] = useState(() => addDaysStr(todayStr(), -7));
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [editing, setEditing] = useState<LongTask | 'new' | null>(null);
+  const [publishing, setPublishing] = useState<LongTask | null>(null);
+  const [placing, setPlacing] = useState<LongTask | null>(null);
+  const [detail, setDetail] = useState<LongTask | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  async function onDragEnd({ active, over, delta, activatorEvent }: DragEndEvent) {
+    setActiveId(null);
+    if (!over) return;
+    const task = pool.find((t) => t.id === active.id);
+    if (!task) return;
+    if (over.id === 'gantt') {
+      const x0 = (activatorEvent as PointerEvent).clientX;
+      if (typeof x0 !== 'number' || !bodyRef.current) {
+        setPlacing(task);
+        return;
+      }
+      const rect = bodyRef.current.getBoundingClientRect();
+      const idx = Math.floor((x0 + delta.x - rect.left) / COL);
+      await placeLongTask(task, addDaysStr(viewStart, idx), today);
+      return;
+    }
+    if (active.id !== over.id) {
+      const ids = pool.map((t) => t.id);
+      await reorder('long_tasks', arrayMove(ids, ids.indexOf(String(active.id)), ids.indexOf(String(over.id))));
+    }
+  }
+
+  const activeTask = pool.find((t) => t.id === activeId);
+
+  return (
+    <DndContext
+      sensors={sensors}
+      onDragStart={(e) => setActiveId(String(e.active.id))}
+      onDragCancel={() => setActiveId(null)}
+      onDragEnd={onDragEnd}
+    >
+      <div className="flex flex-col gap-4 lg:flex-row">
+        <section className="lg:w-80 lg:shrink-0">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">长期任务池</h2>
+            <button className="btn-primary" onClick={() => setEditing('new')}>
+              + 新建
+            </button>
+          </div>
+          <p className="mb-2 text-xs text-slate-500">拖动 ⋮⋮ 调整顺序，或拖到右侧甘特图排期</p>
+          <SortableContext items={pool.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+            <div className="space-y-2">
+              {pool.map((t) => (
+                <SortableRow key={t.id} id={t.id}>
+                  <PoolCard
+                    task={t}
+                    today={today}
+                    onEdit={() => setEditing(t)}
+                    onPlace={() => setPlacing(t)}
+                    onPublish={() => setPublishing(t)}
+                  />
+                </SortableRow>
+              ))}
+              {pool.length === 0 && <p className="py-6 text-center text-sm text-slate-400">任务池是空的</p>}
+            </div>
+          </SortableContext>
+        </section>
+
+        <section className="min-w-0 flex-1">
+          <div className="mb-2 flex items-center gap-2">
+            <h2 className="mr-auto font-semibold">个人甘特图</h2>
+            <button className="btn" onClick={() => setViewStart(addDaysStr(viewStart, -28))}>
+              ← 前四周
+            </button>
+            <button className="btn" onClick={() => setViewStart(addDaysStr(today, -7))}>
+              今天
+            </button>
+            <button className="btn" onClick={() => setViewStart(addDaysStr(viewStart, 28))}>
+              后四周 →
+            </button>
+          </div>
+          <GanttChart
+            tasks={scheduled}
+            viewStart={viewStart}
+            days={DAYS}
+            today={today}
+            now={now}
+            bodyRef={bodyRef}
+            onOpen={setDetail}
+          />
+          <p className="mt-2 text-xs text-slate-500">
+            拖动色条可改开始日期，拖右边缘可改耗时；红色 DDL 标记为截止日；红色竖线为当前时间。
+          </p>
+        </section>
+      </div>
+
+      <DragOverlay>
+        {activeTask && (
+          <div className="rounded-md bg-indigo-500 px-3 py-2 text-sm text-white shadow-lg">{activeTask.title}</div>
+        )}
+      </DragOverlay>
+
+      {editing && <LongTaskForm task={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} />}
+      {publishing && <PublishDialog kind="long" task={publishing} onClose={() => setPublishing(null)} />}
+      {placing && <PlaceDialog task={placing} today={today} onClose={() => setPlacing(null)} />}
+      {detail && (
+        <DetailDialog
+          task={tasks.find((t) => t.id === detail.id) ?? detail}
+          onClose={() => setDetail(null)}
+          onEdit={() => {
+            setEditing(detail);
+            setDetail(null);
+          }}
+          onPublish={() => {
+            setPublishing(detail);
+            setDetail(null);
+          }}
+        />
+      )}
+    </DndContext>
+  );
+}
+
+function PoolCard({
+  task,
+  today,
+  onEdit,
+  onPlace,
+  onPublish,
+}: {
+  task: LongTask;
+  today: string;
+  onEdit: () => void;
+  onPlace: () => void;
+  onPublish: () => void;
+}) {
+  const left = diffDays(task.deadline, today);
+  return (
+    <div className="card p-2.5">
+      <div className="flex items-start gap-2">
+        <span className="min-w-0 flex-1 font-medium">{task.title}</span>
+        <span className={`shrink-0 text-xs ${left < 0 ? 'text-rose-600' : left <= 3 ? 'text-amber-600' : 'text-slate-500'}`}>
+          {left < 0 ? `已过期 ${-left} 天` : left === 0 ? '今天截止' : `${left} 天后截止`}
+        </span>
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+        <span>耗时 {task.duration_days} 天</span>
+        <span>DDL {task.deadline}</span>
+        <Tags tags={task.tags} />
+      </div>
+      <div className="mt-1.5 flex flex-wrap gap-1">
+        <button className="btn-xs" onClick={onPlace}>
+          排入
+        </button>
+        <button className="btn-xs" onClick={onEdit}>
+          编辑
+        </button>
+        <button className="btn-xs" onClick={onPublish}>
+          发布
+        </button>
+        <button className="btn-xs" onClick={() => updateLongTask(task.id, { status: 'trash' })}>
+          删除
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PlaceDialog({ task, today, onClose }: { task: LongTask; today: string; onClose: () => void }) {
+  const latest = latestStart(task.duration_days, task.deadline);
+  const [start, setStart] = useState(today);
+  const impossible = diffDays(latest, today) < 0;
+  return (
+    <Modal title={`排入「${task.title}」`} onClose={onClose}>
+      {impossible ? (
+        <p className="text-sm text-rose-600">
+          耗时 {task.duration_days} 天，今天开始也会晚于 deadline（{task.deadline}）。请先编辑耗时或 deadline。
+        </p>
+      ) : (
+        <div className="space-y-3">
+          <div>
+            <label className="label">开始日期（最晚 {latest}）</label>
+            <input className="input" type="date" min={today} max={latest} value={start} onChange={(e) => setStart(e.target.value)} />
+          </div>
+          <p className="text-xs text-slate-500">
+            结束日期：{endDate(start, task.duration_days)}；Deadline：{task.deadline}
+          </p>
+          <div className="flex justify-end gap-2">
+            <button className="btn" onClick={onClose}>
+              取消
+            </button>
+            <button className="btn-primary" onClick={async () => (await placeLongTask(task, start, today)) && onClose()}>
+              确定
+            </button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function DetailDialog({
+  task,
+  onClose,
+  onEdit,
+  onPublish,
+}: {
+  task: LongTask;
+  onClose: () => void;
+  onEdit: () => void;
+  onPublish: () => void;
+}) {
+  return (
+    <Modal title={task.title} onClose={onClose}>
+      <div className="space-y-1 text-sm">
+        <p>
+          {task.start_date} → {task.start_date && endDate(task.start_date, task.duration_days)}（{task.duration_days} 天）
+        </p>
+        <p>Deadline：{task.deadline}</p>
+        <Tags tags={task.tags} />
+      </div>
+      <div className="mt-4 flex flex-wrap justify-end gap-2">
+        <button className="btn" onClick={onEdit}>
+          编辑
+        </button>
+        <button className="btn" onClick={onPublish}>
+          发布
+        </button>
+        <button
+          className="btn"
+          onClick={async () => {
+            await updateLongTask(task.id, { status: 'pool', start_date: null });
+            onClose();
+          }}
+        >
+          移回任务池
+        </button>
+        <button
+          className="btn-primary"
+          onClick={async () => {
+            await updateLongTask(task.id, { status: 'trash' });
+            toast('已完成，放入垃圾桶');
+            onClose();
+          }}
+        >
+          完成
+        </button>
+      </div>
+    </Modal>
+  );
+}

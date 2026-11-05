@@ -11,7 +11,7 @@ async function notify(title: string, body: string, tag: string) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   const reg = await navigator.serviceWorker?.getRegistration();
   // 与服务端推送使用相同 tag，系统会合并而不是重复弹出
-  if (reg) await reg.showNotification(title, { body, tag, icon: '/icon.svg' });
+  if (reg) await reg.showNotification(title, { body, tag, icon: `${import.meta.env.BASE_URL}icon.svg` });
   else new Notification(title, { body, tag });
 }
 

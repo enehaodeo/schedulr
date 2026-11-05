@@ -35,8 +35,12 @@ npm run build
 
 ## 部署前端
 
-任意静态托管（Vercel / Netlify / Cloudflare Pages），构建命令 `npm run build`，输出目录 `dist`，
-并配置与 `.env.local` 相同的三个环境变量。需要 HTTPS 才能使用推送；单页应用需把所有路径回退到 `index.html`。
+已配置 GitHub Pages：推送到 `master` 后 `.github/workflows/deploy.yml` 自动测试、构建并发布到
+`https://<用户名>.github.io/<仓库名>/`。需要在仓库 Settings → Secrets and variables → Actions → Variables
+中配置与 `.env.local` 相同的三个变量（都是公开值），并在 Settings → Pages 中把 Source 设为 GitHub Actions。
+
+也可用其他静态托管（Vercel / Netlify / Cloudflare Pages）：构建命令 `npm run build`，输出目录 `dist`，
+部署在子路径时设置 `BASE_PATH=/子路径/`。需要 HTTPS 才能使用推送；单页应用需把所有路径回退到 `index.html`。
 
 ## 说明
 

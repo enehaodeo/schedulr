@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { toast } from '../../components/toast';
+import { addFromPublic } from '../../db/repo';
 import type { PublicTask } from '../../db/types';
 import { createStore, useStore } from '../../lib/store';
 import { supabase } from '../../supabase/client';
@@ -26,7 +27,7 @@ export async function loadInbox() {
     supabase.from('public_task_actions').select('public_task_id, action'),
   ]);
   if (error || actErr) {
-    toast(`加载公共任务失败：${(error ?? actErr)!.message}`, 'error');
+    toast(`加载白板任务失败：${(error ?? actErr)!.message}`, 'error');
     return;
   }
   const actions: InboxState['actions'] = {};
@@ -54,6 +55,13 @@ export async function setAction(publicTaskId: string, action: 'added' | 'trashed
   inboxStore.set({ ...s, actions });
 }
 
+/** 接受：复制到自己的任务池并标记为已加入 */
+export async function acceptPublicTask(t: PublicTask) {
+  await addFromPublic(t.id, t.kind, t.payload);
+  await setAction(t.id, 'added');
+  toast(`已加入${t.kind === 'long' ? '长期' : '短期'}任务池`);
+}
+
 /** 收件箱：不是自己发布、也还没处理过的公共任务 */
 export function pendingTasks(s: InboxState, uid: string | undefined): PublicTask[] {
   return s.tasks.filter((t) => t.author_id !== uid && !s.actions[t.id]);
@@ -72,7 +80,7 @@ export function useInboxCount(): number {
       .channel('public_tasks_inserts')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'public_tasks' }, (msg) => {
         const t = msg.new as PublicTask;
-        if (t.author_id !== uid) toast(`新的公共任务：${(t.payload as { title: string }).title}`);
+        if (t.author_id !== uid) toast(`白板有新任务：${(t.payload as { title: string }).title}`);
         void loadInbox();
       })
       .subscribe();

@@ -8,6 +8,7 @@ import { ReminderWatcher } from './features/reminders/ReminderWatcher';
 import { useStore } from './lib/store';
 import AccountPage from './routes/AccountPage';
 import GanttPage from './routes/GanttPage';
+import HomePage from './routes/HomePage';
 import Onboarding from './routes/Onboarding';
 import PublicPage from './routes/PublicPage';
 import SchedulePage from './routes/SchedulePage';
@@ -42,6 +43,9 @@ export default function App() {
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-4 py-2">
           <span className="mr-2 font-bold text-indigo-600">Schedulr</span>
           <nav className="flex flex-wrap gap-1">
+            <NavLink to="/" end className={link}>
+              主页
+            </NavLink>
             <NavLink to="/gantt" className={link}>
               甘特图
             </NavLink>
@@ -49,7 +53,7 @@ export default function App() {
               日程表
             </NavLink>
             <NavLink to="/public" className={link}>
-              公共任务
+              白板
               {inbox > 0 && (
                 <span className="absolute -right-1 -top-1 rounded-full bg-rose-500 px-1.5 text-[10px] text-white">
                   {inbox}
@@ -67,13 +71,13 @@ export default function App() {
       </header>
       <main className="mx-auto w-full max-w-7xl flex-1 p-4">
         <Routes>
-          <Route path="/" element={<Navigate to="/gantt" replace />} />
+          <Route path="/" element={<HomePage />} />
           <Route path="/gantt" element={<GanttPage />} />
           <Route path="/schedule" element={<SchedulePage />} />
           <Route path="/public" element={<PublicPage />} />
           <Route path="/trash" element={<TrashPage />} />
           <Route path="/account" element={<AccountPage />} />
-          <Route path="*" element={<Navigate to="/gantt" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
       <ExpiryWatcher />

@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Modal } from '../../components/Modal';
+import { NumberInput } from '../../components/NumberInput';
+import { TagInput } from '../../components/TagInput';
 import { parseTags } from '../../components/Tags';
 import { toast } from '../../components/toast';
 import { addShortTask, updateShortTask } from '../../db/repo';
@@ -19,13 +21,13 @@ export function ShortTaskForm({
 }) {
   const initial = task?.duration_min ?? 30;
   const [title, setTitle] = useState(task?.title ?? '');
-  const [hours, setHours] = useState(Math.floor(initial / 60));
-  const [mins, setMins] = useState(initial % 60);
+  const [hours, setHours] = useState(String(Math.floor(initial / 60)));
+  const [mins, setMins] = useState(String(initial % 60));
   const [tags, setTags] = useState((task?.tags ?? parent?.tags ?? []).join(', '));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    const duration = hours * 60 + mins;
+    const duration = Number(hours) * 60 + Number(mins);
     if (!title.trim()) return;
     if (!hasChildren && duration < 1) {
       toast('耗时至少 1 分钟', 'error');
@@ -60,30 +62,17 @@ export function ShortTaskForm({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">小时</label>
-              <input
-                className="input"
-                type="number"
-                min={0}
-                value={hours}
-                onChange={(e) => setHours(Math.max(0, Number(e.target.value)))}
-              />
+              <NumberInput placeholder="0" value={hours} onChange={setHours} />
             </div>
             <div>
               <label className="label">分钟</label>
-              <input
-                className="input"
-                type="number"
-                min={0}
-                max={59}
-                value={mins}
-                onChange={(e) => setMins(Math.min(59, Math.max(0, Number(e.target.value))))}
-              />
+              <NumberInput placeholder="0" max={59} value={mins} onChange={setMins} />
             </div>
           </div>
         )}
         <div>
           <label className="label">标签（逗号或空格分隔）</label>
-          <input className="input" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="物理, 作业" />
+          <TagInput value={tags} onChange={setTags} placeholder="物理, 作业" />
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" className="btn" onClick={onClose}>

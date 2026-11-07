@@ -93,7 +93,7 @@ export default function TrashPage() {
 
       {trashedPublic.length > 0 && (
         <section>
-          <h3 className="mb-2 text-sm font-medium text-slate-600">丢弃的公共任务</h3>
+          <h3 className="mb-2 text-sm font-medium text-slate-600">丢弃的白板任务</h3>
           <div className="space-y-2">
             {trashedPublic.map((t) => (
               <div key={t.id} className="card p-2.5">

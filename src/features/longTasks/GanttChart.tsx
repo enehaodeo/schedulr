@@ -9,6 +9,8 @@ import { fitsDeadline, latestStart } from './gantt';
 
 export const COL = 36;
 const ROW = 44;
+/** 顶部留白，放“现在”标签，避免盖住第一行任务名 */
+const NOW_STRIP = 18;
 
 export function GanttChart({
   tasks,
@@ -31,7 +33,7 @@ export function GanttChart({
   const dates = Array.from({ length: days }, (_, i) => addDaysStr(viewStart, i));
   const todayIdx = diffDays(today, viewStart);
   const nowLeft = (todayIdx + (now - startOfDay(now).getTime()) / DAY_MS) * COL;
-  const height = Math.max(tasks.length + 1, 6) * ROW;
+  const height = NOW_STRIP + Math.max(tasks.length + 1, 6) * ROW;
 
   return (
     <div className="card overflow-x-auto">
@@ -84,8 +86,10 @@ export function GanttChart({
             </div>
           )}
           {todayIdx >= 0 && todayIdx < days && (
-            <div className="pointer-events-none absolute top-0 z-20 h-full w-0.5 bg-rose-500" style={{ left: nowLeft }}>
-              <span className="absolute -left-4 -top-0 rounded bg-rose-500 px-1 text-[10px] text-white">现在</span>
+            <div className="pointer-events-none absolute top-0 z-[5] h-full w-0.5 bg-rose-500" style={{ left: nowLeft }}>
+              <span className="absolute left-px top-0.5 -translate-x-1/2 whitespace-nowrap rounded bg-rose-500 px-1 text-[10px] leading-[14px] text-white">
+                现在
+              </span>
             </div>
           )}
         </div>
@@ -109,7 +113,7 @@ function GanttRow({
   const start = diffDays(task.start_date!, viewStart) + (drag?.mode === 'move' ? drag.d : 0);
   const dur = Math.max(1, task.duration_days + (drag?.mode === 'resize' ? drag.d : 0));
   const ddl = diffDays(task.deadline, viewStart);
-  const top = row * ROW + 6;
+  const rowTop = NOW_STRIP + row * ROW;
 
   function down(e: ReactPointerEvent, mode: 'move' | 'resize') {
     e.stopPropagation();
@@ -143,7 +147,7 @@ function GanttRow({
     <>
       <div
         className="absolute z-10 flex cursor-grab touch-none items-center gap-1 overflow-hidden rounded-md bg-indigo-500 px-2 text-xs text-white shadow-sm hover:bg-indigo-600"
-        style={{ left: start * COL + 1, width: dur * COL - 2, top, height: ROW - 12 }}
+        style={{ left: start * COL + 1, width: dur * COL - 2, top: rowTop + 6, height: ROW - 12 }}
         onPointerDown={(e) => down(e, 'move')}
         onPointerMove={move}
         onPointerUp={up}
@@ -158,7 +162,7 @@ function GanttRow({
       </div>
       <div
         className="pointer-events-none absolute z-[15] flex items-end"
-        style={{ left: (ddl + 1) * COL - 3, top: row * ROW + 2, height: ROW - 4 }}
+        style={{ left: (ddl + 1) * COL - 3, top: rowTop + 2, height: ROW - 4 }}
         title={`Deadline ${task.deadline}`}
       >
         <div className="h-full w-[3px] rounded bg-rose-500" />

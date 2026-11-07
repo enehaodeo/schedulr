@@ -51,7 +51,7 @@ The app is served from a sub-path via `BASE_PATH`. Use `import.meta.env.BASE_URL
 
 **Scheduling** (`src/features/scheduler/autoSchedule.ts`) is a greedy pure function: pool order first, earliest slot that fits, skip what doesn't. `canPlace` validates manual placement. Keep this logic in pure modules so it stays testable.
 
-**Public tasks are online-only and never stored in Dexie.** `src/features/public/inbox.ts` reads `public_tasks` directly; RLS limits rows to those whose `scopes` overlap the reader's `profiles.courses`, or the author's own. Adding one copies it into a private row via `addFromPublic` (with `source_public_id`), and `public_task_actions` records added/trashed per user. Scopes are the course codes from `src/lib/courses.ts`, so renaming a code orphans existing data.
+**Public tasks are online-only and never stored in Dexie.** The UI calls this area 白板; code, tables and the `/public` route keep the "public" name. `src/features/public/inbox.ts` reads `public_tasks` directly; RLS limits rows to those whose `scopes` overlap the reader's `profiles.courses`, or the author's own. Adding one copies it into a private row via `addFromPublic` (with `source_public_id`), and `public_task_actions` records added/trashed per user. Scopes are the course codes from `src/lib/courses.ts`, so renaming a code orphans existing data.
 
 **Reminders come from two sources.** `ReminderWatcher` fires while the page is open; the `send-reminders` Edge Function fires from pg_cron every minute. Both use the 5-minute lead and the tag `${id}:${kind}:${at}` so the OS merges duplicates; `reminder_log` dedupes on the server. Change them together. Task expiry is client-only: `ExpiryWatcher` prompts done/not done.
 

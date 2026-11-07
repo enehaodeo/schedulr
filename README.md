@@ -1,6 +1,6 @@
 # Schedulr 班级时间管理
 
-给班级学生用的时间管理网页应用（PWA）：个人甘特图、个人日程表、按选课发布的公共任务。
+给班级学生用的时间管理网页应用（PWA）：个人甘特图、个人日程表、按选课发布任务的白板。
 不登录也能用，数据保存在浏览器（IndexedDB）；登录后同步到 Supabase 云端。
 
 ## 本地开发
@@ -12,7 +12,7 @@ npm run test     # 排程、甘特约束、同步合并的单元测试
 npm run build
 ```
 
-没有 `.env.local` 时应用以纯本地模式运行（无登录、公共任务、推送）。
+没有 `.env.local` 时应用以纯本地模式运行（无登录、白板、推送）。
 
 ## 接入云端（Supabase）
 
@@ -31,7 +31,7 @@ npm run build
    npx supabase functions deploy notify-public-task --no-verify-jwt
    ```
 
-7. 替换 `supabase/setup_jobs.sql` 中的占位符后在 SQL Editor 执行（每分钟提醒 + 新公共任务通知）。
+7. 替换 `supabase/setup_jobs.sql` 中的占位符后在 SQL Editor 执行（每分钟提醒 + 白板新任务通知）。
 
 ## 部署前端
 

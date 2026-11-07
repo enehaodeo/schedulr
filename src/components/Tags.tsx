@@ -14,3 +14,9 @@ export function Tags({ tags }: { tags: string[] }) {
 export function parseTags(s: string): string[] {
   return [...new Set(s.split(/[,，\s]+/).map((t) => t.trim()).filter(Boolean))];
 }
+
+/** 在标签文本里加入或去掉一个标签 */
+export function toggleTag(value: string, tag: string): string {
+  const tags = parseTags(value);
+  return (tags.includes(tag) ? tags.filter((t) => t !== tag) : [...tags, tag]).join(', ');
+}

@@ -15,6 +15,16 @@ export function latestStart(durationDays: number, deadline: string): string {
   return addDaysStr(deadline, -(durationDays - 1));
 }
 
+/** 已排入甘特图且今天落在开始日和结束日之间的任务 */
+export function isLongActive(t: LongTask, today: string): boolean {
+  return (
+    t.status === 'scheduled' &&
+    !!t.start_date &&
+    diffDays(today, t.start_date) >= 0 &&
+    diffDays(endDate(t.start_date, t.duration_days), today) >= 0
+  );
+}
+
 /** 已排入甘特图且结束日已过的任务 */
 export function isLongExpired(t: LongTask, today: string): boolean {
   return (

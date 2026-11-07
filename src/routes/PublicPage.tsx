@@ -1,10 +1,10 @@
 import { format } from 'date-fns';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Tags } from '../components/Tags';
 import { toast } from '../components/toast';
-import { addFromPublic } from '../db/repo';
 import type { PublicPayloadLong, PublicPayloadShort, PublicTask } from '../db/types';
-import { pendingTasks, inboxStore, setAction } from '../features/public/inbox';
+import { acceptPublicTask, pendingTasks, inboxStore, setAction } from '../features/public/inbox';
 import { courseName } from '../lib/courses';
 import { fmtDuration } from '../lib/dates';
 import { useStore } from '../lib/store';
@@ -49,30 +49,58 @@ export function PublicTaskSummary({ task }: { task: PublicTask }) {
   );
 }
 
+/** 收到的任务卡片，白板和主页共用 */
+export function PendingTaskCard({ task }: { task: PublicTask }) {
+  // 接受要等网络返回，防止连点加入两次
+  const [busy, setBusy] = useState(false);
+
+  async function accept() {
+    setBusy(true);
+    try {
+      await acceptPublicTask(task);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card p-3">
+      <PublicTaskSummary task={task} />
+      <div className="mt-1 text-xs text-slate-400">
+        {task.author_name || '匿名'} · {format(new Date(task.created_at), 'M月d日 HH:mm')}
+      </div>
+      <div className="mt-2 flex gap-2">
+        <button className="btn-primary" disabled={busy} onClick={accept}>
+          接受
+        </button>
+        <button className="btn" disabled={busy} onClick={() => setAction(task.id, 'trashed')}>
+          放入垃圾桶
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function LoginHint() {
+  return (
+    <div className="card p-6 text-center text-sm text-slate-500">
+      白板需要登录后使用。<Link to="/account" className="text-indigo-600 hover:underline">去登录</Link>
+    </div>
+  );
+}
+
 export default function PublicPage() {
   const session = useStore(sessionStore);
   const state = useStore(inboxStore);
   const uid = session?.user.id;
 
-  if (!supabase || !session) {
-    return (
-      <div className="card p-6 text-center text-sm text-slate-500">
-        公共任务需要登录后使用。<Link to="/account" className="text-indigo-600 hover:underline">去登录</Link>
-      </div>
-    );
-  }
+  if (!supabase || !session) return <LoginHint />;
 
   const pending = pendingTasks(state, uid);
   const mine = state.tasks.filter((t) => t.author_id === uid);
 
-  async function add(t: PublicTask) {
-    await addFromPublic(t.id, t.kind, t.payload);
-    await setAction(t.id, 'added');
-    toast(`已加入${t.kind === 'long' ? '长期' : '短期'}任务池`);
-  }
-
   async function removeMine(t: PublicTask) {
-    if (!confirm('撤回这条公共任务？已加入的同学不受影响。')) return;
+    if (!confirm('撤回这条任务？已加入的同学不受影响。')) return;
     const { error } = await supabase!.from('public_tasks').delete().eq('id', t.id);
     if (error) toast(error.message, 'error');
     else inboxStore.set({ ...state, tasks: state.tasks.filter((x) => x.id !== t.id) });
@@ -81,26 +109,13 @@ export default function PublicPage() {
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <section>
-        <h2 className="mb-2 font-semibold">收到的公共任务</h2>
+        <h2 className="mb-2 font-semibold">收到的任务</h2>
         <div className="space-y-2">
           {pending.map((t) => (
-            <div key={t.id} className="card p-3">
-              <PublicTaskSummary task={t} />
-              <div className="mt-1 text-xs text-slate-400">
-                {t.author_name || '匿名'} · {format(new Date(t.created_at), 'M月d日 HH:mm')}
-              </div>
-              <div className="mt-2 flex gap-2">
-                <button className="btn-primary" onClick={() => add(t)}>
-                  加入{t.kind === 'long' ? '长期' : '短期'}任务池
-                </button>
-                <button className="btn" onClick={() => setAction(t.id, 'trashed')}>
-                  放入垃圾桶
-                </button>
-              </div>
-            </div>
+            <PendingTaskCard key={t.id} task={t} />
           ))}
           {state.loaded && pending.length === 0 && (
-            <p className="py-6 text-center text-sm text-slate-400">暂时没有新的公共任务</p>
+            <p className="py-6 text-center text-sm text-slate-400">白板上暂时没有新任务</p>
           )}
         </div>
       </section>

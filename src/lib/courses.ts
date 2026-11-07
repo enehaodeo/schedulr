@@ -34,3 +34,8 @@ const byCode = new Map(COURSES.map((c) => [c.code, c.name]));
 export function courseName(code: string): string {
   return byCode.get(code) ?? code;
 }
+
+/** 去掉等级的科目名（数学 HL → 数学），标签不能含空格 */
+export function courseSubject(code: string): string {
+  return courseName(code).replace(/\s+(SL|HL)$/, '');
+}

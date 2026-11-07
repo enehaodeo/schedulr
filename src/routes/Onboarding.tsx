@@ -21,7 +21,7 @@ export default function Onboarding() {
   return (
     <div className="mx-auto max-w-2xl p-6">
       <h1 className="mb-1 text-2xl font-bold text-indigo-600">欢迎使用 Schedulr</h1>
-      <p className="mb-6 text-sm text-slate-500">先填写名字和选课，公共任务会按课程推送给你。</p>
+      <p className="mb-6 text-sm text-slate-500">先填写名字和选课，白板上的任务会按课程推送给你。</p>
       <div className="card space-y-4 p-5">
         <div>
           <label className="label">名字</label>

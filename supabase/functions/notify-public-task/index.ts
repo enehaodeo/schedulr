@@ -28,7 +28,7 @@ Deno.serve(async (req) => {
     sb,
     (users ?? []).map((u) => u.id),
     {
-      title: '新的公共任务',
+      title: '白板有新任务',
       body: `${record.author_name ?? '有人'}发布了${record.kind === 'long' ? '长期' : '短期'}任务「${record.payload.title}」`,
       tag: `public:${record.id}`,
       url: '/public',

@@ -54,14 +54,14 @@ export function PublishDialog(props: Props) {
       toast(`发布失败：${error.message}`, 'error');
       return;
     }
-    toast('已发布到公共任务池');
+    toast('已发布到白板');
     props.onClose();
   }
 
   return (
-    <Modal title={`发布「${props.task.title}」到公共任务池`} onClose={props.onClose}>
+    <Modal title={`发布「${props.task.title}」到白板`} onClose={props.onClose}>
       {!session ? (
-        <p className="text-sm text-slate-500">发布公共任务需要先登录。</p>
+        <p className="text-sm text-slate-500">发布到白板需要先登录。</p>
       ) : (
         <div className="space-y-4">
           <div>

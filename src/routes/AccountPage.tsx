@@ -83,7 +83,7 @@ export default function AccountPage() {
       <section className="card space-y-3 p-4">
         <h2 className="font-semibold">提醒</h2>
         <p className="text-xs text-slate-500">
-          日程任务开始和结束前 5 分钟提醒，新公共任务也会提醒。登录后开启可在关闭网页时收到推送；iPhone / iPad 需先用 Safari
+          日程任务开始和结束前 5 分钟提醒，白板有新任务也会提醒。登录后开启可在关闭网页时收到推送；iPhone / iPad 需先用 Safari
           “添加到主屏幕”再从主屏幕打开。
         </p>
         <button className="btn-primary" onClick={notifications}>

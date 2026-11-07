@@ -49,6 +49,8 @@ The app is served from a sub-path via `BASE_PATH`. Use `import.meta.env.BASE_URL
 
 **Short task trees.** Subtasks are one level deep via `parent_id`. A parent stays in the pool until every child is finished, and only leaves are scheduled: `leafQueue` in `src/features/shortTasks/tree.ts` turns pool order into auto-schedule priority. After moving a child to trash, call `settleParent`.
 
+**Dragging from a task pool** goes through `src/lib/taskDrag.ts`. Take the drop position from `useDropPointer`, not from `DragEndEvent.delta`: once the pointer is over a droppable inside a scroll container, `delta` includes that container's scroll offset. Drop areas need `data-drop-area` on their visible scroll container, because the droppable body is larger than what's on screen. Phones start a drag with a long press so swiping a card still scrolls.
+
 **Scheduling** (`src/features/scheduler/autoSchedule.ts`) is a greedy pure function: pool order first, earliest slot that fits, skip what doesn't. `canPlace` validates manual placement. Keep this logic in pure modules so it stays testable.
 
 **Public tasks are online-only and never stored in Dexie.** The UI calls this area 白板; code, tables and the `/public` route keep the "public" name. `src/features/public/inbox.ts` reads `public_tasks` directly; RLS limits rows to those whose `scopes` overlap the reader's `profiles.courses`, or the author's own. Adding one copies it into a private row via `addFromPublic` (with `source_public_id`), and `public_task_actions` records added/trashed per user. Scopes are the course codes from `src/lib/courses.ts`, so renaming a code orphans existing data.

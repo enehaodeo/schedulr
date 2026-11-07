@@ -5,7 +5,7 @@ import { toast } from '../../components/toast';
 import { updateLongTask } from '../../db/repo';
 import type { LongTask } from '../../db/types';
 import { addDaysStr, DAY_MS, diffDays, fromDateStr, WEEKDAYS } from '../../lib/dates';
-import { fitsDeadline, latestStart } from './gantt';
+import { canStartOn, fitsDeadline, latestStart } from './gantt';
 
 export const COL = 36;
 const ROW = 44;
@@ -19,6 +19,7 @@ export function GanttChart({
   today,
   now,
   bodyRef,
+  preview,
   onOpen,
 }: {
   tasks: LongTask[];
@@ -27,6 +28,8 @@ export function GanttChart({
   today: string;
   now: number;
   bodyRef: RefObject<HTMLDivElement>;
+  /** 正在从任务池拖入的任务；start 为当前落点，不在甘特图上时为 null */
+  preview: { task: LongTask; start: string | null } | null;
   onOpen: (t: LongTask) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: 'gantt' });
@@ -36,7 +39,7 @@ export function GanttChart({
   const height = NOW_STRIP + Math.max(tasks.length + 1, 6) * ROW;
 
   return (
-    <div className="card overflow-x-auto">
+    <div data-drop-area className="card overflow-x-auto">
       <div style={{ width: days * COL }} className="relative select-none">
         <div className="sticky top-0 flex border-b border-slate-200 bg-white">
           {dates.map((d) => {
@@ -77,10 +80,11 @@ export function GanttChart({
               />
             );
           })}
+          {preview && <DropPreview {...preview} row={tasks.length} viewStart={viewStart} days={days} today={today} />}
           {tasks.map((t, row) => (
             <GanttRow key={t.id} task={t} row={row} viewStart={viewStart} onOpen={() => onOpen(t)} />
           ))}
-          {tasks.length === 0 && (
+          {tasks.length === 0 && !preview && (
             <div className="absolute inset-x-0 top-6 text-center text-sm text-slate-400">
               把左侧任务拖到这里，落点就是开始日期
             </div>
@@ -95,6 +99,54 @@ export function GanttChart({
         </div>
       </div>
     </div>
+  );
+}
+
+/** 绿色区域：今天到 deadline 之间可以放入的范围；虚线条：松手后任务的位置 */
+function DropPreview({
+  task,
+  start,
+  row,
+  viewStart,
+  days,
+  today,
+}: {
+  task: LongTask;
+  start: string | null;
+  row: number;
+  viewStart: string;
+  days: number;
+  today: string;
+}) {
+  const from = Math.max(diffDays(today, viewStart), 0);
+  const to = Math.min(diffDays(task.deadline, viewStart), days - 1);
+  const possible = canStartOn(today, task.duration_days, task.deadline, today);
+  const ok = !!start && canStartOn(start, task.duration_days, task.deadline, today);
+
+  return (
+    <>
+      {possible && to >= from && (
+        <div
+          className="pointer-events-none absolute top-0 h-full border-x border-emerald-300 bg-emerald-100/70"
+          style={{ left: from * COL, width: (to - from + 1) * COL }}
+        />
+      )}
+      {start && (
+        <div
+          className={`pointer-events-none absolute z-10 flex items-center overflow-hidden rounded-md border-2 border-dashed px-2 text-xs font-medium ${
+            ok ? 'border-emerald-500 bg-emerald-200/80 text-emerald-800' : 'border-rose-400 bg-rose-100/90 text-rose-700'
+          }`}
+          style={{
+            left: diffDays(start, viewStart) * COL + 1,
+            width: task.duration_days * COL - 2,
+            top: NOW_STRIP + row * ROW + 6,
+            height: ROW - 12,
+          }}
+        >
+          <span className="truncate">{task.title}</span>
+        </div>
+      )}
+    </>
   );
 }
 

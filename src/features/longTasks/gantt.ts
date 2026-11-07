@@ -10,6 +10,11 @@ export function fitsDeadline(start: string, durationDays: number, deadline: stri
   return diffDays(endDate(start, durationDays), deadline) <= 0;
 }
 
+/** 能否从 start 开始：不早于今天，且结束日不晚于 deadline */
+export function canStartOn(start: string, durationDays: number, deadline: string, today: string): boolean {
+  return diffDays(start, today) >= 0 && fitsDeadline(start, durationDays, deadline);
+}
+
 /** 最晚可开始日期 */
 export function latestStart(durationDays: number, deadline: string): string {
   return addDaysStr(deadline, -(durationDays - 1));

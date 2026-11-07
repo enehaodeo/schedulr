@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { endDate, fitsDeadline, isLongActive, isLongExpired, latestStart } from '../src/features/longTasks/gantt';
+import { canStartOn, endDate, fitsDeadline, isLongActive, isLongExpired, latestStart } from '../src/features/longTasks/gantt';
 import type { LongTask } from '../src/db/types';
 
 describe('gantt constraints', () => {
@@ -37,5 +37,17 @@ describe('isLongActive', () => {
 
   it('is false for tasks still in the pool', () => {
     expect(isLongActive({ ...task, status: 'pool', start_date: null }, '2026-11-05')).toBe(false);
+  });
+});
+
+describe('canStartOn', () => {
+  it('accepts today through the latest start', () => {
+    expect(canStartOn('2026-11-07', 3, '2026-11-14', '2026-11-07')).toBe(true);
+    expect(canStartOn('2026-11-12', 3, '2026-11-14', '2026-11-07')).toBe(true);
+  });
+
+  it('rejects days before today or after the latest start', () => {
+    expect(canStartOn('2026-11-06', 3, '2026-11-14', '2026-11-07')).toBe(false);
+    expect(canStartOn('2026-11-13', 3, '2026-11-14', '2026-11-07')).toBe(false);
   });
 });

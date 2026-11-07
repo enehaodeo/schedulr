@@ -1,8 +1,8 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { ReactNode } from 'react';
+import { useCallback, type ReactNode } from 'react';
 
-/** 可排序、可拖出的列表项；只有左侧手柄触发拖动，保证手机上列表仍可滚动 */
+/** 可排序、可拖出的列表项；整张卡片都能拖动（手机上长按，见 useTaskSensors） */
 export function SortableRow({
   id,
   data,
@@ -14,27 +14,31 @@ export function SortableRow({
   disabled?: boolean;
   children: ReactNode;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
     id,
     data,
     disabled,
+    attributes: { role: 'group' },
   });
+  // 键盘拖动只在卡片本身获得焦点时触发，卡片里的按钮不受影响
+  const ref = useCallback(
+    (el: HTMLDivElement | null) => {
+      setNodeRef(el);
+      setActivatorNodeRef(el);
+    },
+    [setNodeRef, setActivatorNodeRef],
+  );
   return (
     <div
-      ref={setNodeRef}
+      ref={ref}
+      {...attributes}
+      {...listeners}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={`flex items-stretch gap-1 ${isDragging ? 'opacity-40' : ''}`}
+      className={`touch-manipulation select-none rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+        disabled ? '' : 'cursor-grab'
+      } ${isDragging ? 'opacity-40' : ''}`}
     >
-      <button
-        {...attributes}
-        {...listeners}
-        disabled={disabled}
-        className="w-5 shrink-0 cursor-grab touch-none rounded text-slate-400 hover:bg-slate-100 disabled:cursor-default disabled:opacity-30"
-        aria-label="拖动"
-      >
-        ⋮⋮
-      </button>
-      <div className="min-w-0 flex-1">{children}</div>
+      {children}
     </div>
   );
 }

@@ -24,6 +24,7 @@ export function DayTimeline({
   editMode,
   scope,
   bodyRef,
+  ghost,
   onOpen,
 }: {
   date: string;
@@ -38,6 +39,8 @@ export function DayTimeline({
   editMode: boolean;
   scope: AvailScope;
   bodyRef: RefObject<HTMLDivElement>;
+  /** 从任务池拖入时，松手后任务的位置；ok 表示这里可以放下 */
+  ghost: { title: string; startMin: number; duration: number; ok: boolean } | null;
   onOpen: (t: ShortTask) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: 'timeline' });
@@ -104,7 +107,7 @@ export function DayTimeline({
   }
 
   return (
-    <div ref={scrollRef} className="card relative h-[70vh] overflow-y-auto">
+    <div ref={scrollRef} data-drop-area className="card relative h-[70vh] overflow-y-auto">
       <div
         ref={(el) => {
           setNodeRef(el);
@@ -157,6 +160,17 @@ export function DayTimeline({
         {tasks.map((t) => (
           <Block key={t.id} task={t} date={date} now={now} windows={windows} busy={busy} disabled={editMode} onOpen={() => onOpen(t)} />
         ))}
+
+        {ghost && (
+          <div
+            className={`pointer-events-none absolute left-1 right-24 z-10 overflow-hidden rounded-md border-2 border-dashed px-2 text-xs font-medium ${
+              ghost.ok ? 'border-emerald-500 bg-emerald-200/80 text-emerald-800' : 'border-rose-400 bg-rose-100/90 text-rose-700'
+            }`}
+            style={{ top: minToPx(ghost.startMin), height: Math.max(minToPx(ghost.duration), 18) }}
+          >
+            {ghost.title} {fmtMin(ghost.startMin)}-{fmtMin(ghost.startMin + ghost.duration)}
+          </div>
+        )}
 
         {isToday && (
           <div className="pointer-events-none absolute -left-2 right-0 z-20 h-0.5 bg-rose-500" style={{ top: minToPx(msToDayMin(now)) }}>

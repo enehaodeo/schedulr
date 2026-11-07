@@ -1,13 +1,5 @@
-import {
-  DndContext,
-  DragOverlay,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core';
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { DndContext, DragOverlay, type DragEndEvent, type DragMoveEvent, type DragOverEvent } from '@dnd-kit/core';
+import { arrayMove, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { format } from 'date-fns';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useRef, useState } from 'react';
@@ -36,6 +28,7 @@ import {
   toDateStr,
   WEEKDAYS,
 } from '../lib/dates';
+import { useDropPointer, useTaskSensors } from '../lib/taskDrag';
 import { useNow } from '../lib/useNow';
 
 type FormState = { task?: ShortTask; parent?: ShortTask; hasChildren?: boolean } | null;
@@ -52,12 +45,11 @@ export default function SchedulePage() {
   const [placing, setPlacing] = useState<ShortTask | null>(null);
   const [detail, setDetail] = useState<ShortTask | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [dropMin, setDropMin] = useState<number | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
+  const sensors = useTaskSensors();
+  const { pointer, collisionDetection } = useDropPointer('timeline', bodyRef);
 
   const tops = poolTops(all);
   const scheduled = all.filter((t) => t.status === 'scheduled' && t.start_at !== null);
@@ -68,23 +60,44 @@ export default function SchedulePage() {
   const slots = slotsForDate(avail, date);
   const windows = windowsForDate(avail, date);
 
-  async function place(task: ShortTask, startMin: number): Promise<boolean> {
+  function placeError(task: ShortTask, startMin: number): string | null {
     const start = dateMinToMs(date, startMin);
     const end = start + task.duration_min * MIN_MS;
-    if (start < now) {
-      toast('开始时间不能早于现在', 'error');
+    if (start < now) return '开始时间不能早于现在';
+    if (!canPlace({ start, end }, windows, busy)) return '必须放在可用时间内，且不能与其他任务重叠';
+    return null;
+  }
+
+  async function place(task: ShortTask, startMin: number): Promise<boolean> {
+    const error = placeError(task, startMin);
+    if (error) {
+      toast(error, 'error');
       return false;
     }
-    if (!canPlace({ start, end }, windows, busy)) {
-      toast('必须放在可用时间内，且不能与其他任务重叠', 'error');
-      return false;
-    }
+    const start = dateMinToMs(date, startMin);
+    const end = start + task.duration_min * MIN_MS;
     await updateShortTask(task.id, { status: 'scheduled', start_at: start, end_at: end });
     return true;
   }
 
-  async function onDragEnd({ active, over, delta, activatorEvent }: DragEndEvent) {
+  /** 指针所在的时刻，按 5 分钟取整 */
+  function minuteAtPointer(): number | null {
+    if (!pointer.current || !bodyRef.current) return null;
+    const rect = bodyRef.current.getBoundingClientRect();
+    return Math.round(((pointer.current.y - rect.top) / HOUR) * 12) * 5;
+  }
+
+  function trackDrop({ over }: DragMoveEvent | DragOverEvent) {
+    setDropMin(over?.id === 'timeline' ? minuteAtPointer() : null);
+  }
+
+  function endDrag() {
     setActiveId(null);
+    setDropMin(null);
+  }
+
+  async function onDragEnd({ active, over }: DragEndEvent) {
+    endDrag();
     if (!over) return;
     const task = all.find((t) => t.id === active.id);
     if (!task) return;
@@ -94,14 +107,9 @@ export default function SchedulePage() {
         return;
       }
       if (task.status !== 'pool') return;
-      const y0 = (activatorEvent as PointerEvent).clientY;
-      if (typeof y0 !== 'number' || !bodyRef.current) {
-        setPlacing(task);
-        return;
-      }
-      const rect = bodyRef.current.getBoundingClientRect();
-      const minute = Math.round(((y0 + delta.y - rect.top) / HOUR) * 12) * 5;
-      await place(task, minute);
+      const minute = minuteAtPointer();
+      if (minute === null) setPlacing(task);
+      else await place(task, minute);
       return;
     }
     const overTask = all.find((t) => t.id === over.id);
@@ -136,13 +144,17 @@ export default function SchedulePage() {
   }
 
   const activeTask = all.find((t) => t.id === activeId);
+  const canDrop = !!activeTask && activeTask.status === 'pool' && childrenOf(all, activeTask.id).length === 0;
   const d = fromDateStr(date);
 
   return (
     <DndContext
       sensors={sensors}
+      collisionDetection={collisionDetection}
       onDragStart={(e) => setActiveId(String(e.active.id))}
-      onDragCancel={() => setActiveId(null)}
+      onDragMove={trackDrop}
+      onDragOver={trackDrop}
+      onDragCancel={endDrag}
       onDragEnd={onDragEnd}
     >
       <div className="flex flex-col gap-4 lg:flex-row">
@@ -153,7 +165,9 @@ export default function SchedulePage() {
               + 新建
             </button>
           </div>
-          <p className="mb-2 text-xs text-slate-500">顺序决定自动排程的优先级；拖动 ⋮⋮ 调整顺序或拖到右侧日程</p>
+          <p className="mb-2 text-xs text-slate-500">
+            顺序决定自动排程的优先级；拖动卡片调整顺序或拖到右侧日程（手机上长按后拖动）
+          </p>
           <SortableContext items={tops.map((t) => t.id)} strategy={verticalListSortingStrategy}>
             <div className="space-y-2">
               {tops.map((t) => {
@@ -243,13 +257,23 @@ export default function SchedulePage() {
             editMode={editMode}
             scope={scope}
             bodyRef={bodyRef}
+            ghost={
+              canDrop && dropMin !== null
+                ? {
+                    title: activeTask.title,
+                    startMin: dropMin,
+                    duration: activeTask.duration_min,
+                    ok: !placeError(activeTask, dropMin),
+                  }
+                : null
+            }
             onOpen={setDetail}
           />
         </section>
       </div>
 
       <DragOverlay>
-        {activeTask && (
+        {activeTask && !(canDrop && dropMin !== null) && (
           <div className="rounded-md bg-indigo-500 px-3 py-2 text-sm text-white shadow-lg">
             {activeTask.title} · {fmtDuration(totalDuration(all, activeTask))}
           </div>

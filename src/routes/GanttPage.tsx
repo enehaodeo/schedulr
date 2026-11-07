@@ -1,13 +1,5 @@
-import {
-  DndContext,
-  DragOverlay,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core';
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { DndContext, DragOverlay, type DragEndEvent, type DragMoveEvent, type DragOverEvent } from '@dnd-kit/core';
+import { arrayMove, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useRef, useState } from 'react';
 import { Modal } from '../components/Modal';
@@ -17,11 +9,12 @@ import { toast } from '../components/toast';
 import { db } from '../db/dexie';
 import { reorder, updateLongTask } from '../db/repo';
 import type { LongTask } from '../db/types';
-import { endDate, fitsDeadline, latestStart } from '../features/longTasks/gantt';
+import { canStartOn, endDate, fitsDeadline, latestStart } from '../features/longTasks/gantt';
 import { COL, GanttChart } from '../features/longTasks/GanttChart';
 import { LongTaskForm } from '../features/longTasks/LongTaskForm';
 import { PublishDialog } from '../features/public/PublishDialog';
 import { addDaysStr, diffDays, todayStr } from '../lib/dates';
+import { useDropPointer, useTaskSensors } from '../lib/taskDrag';
 import { useNow } from '../lib/useNow';
 
 const DAYS = 63;
@@ -55,26 +48,36 @@ export default function GanttPage() {
   const [placing, setPlacing] = useState<LongTask | null>(null);
   const [detail, setDetail] = useState<LongTask | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [dropStart, setDropStart] = useState<string | null>(null);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
+  const sensors = useTaskSensors();
+  const { pointer, collisionDetection } = useDropPointer('gantt', bodyRef);
 
-  async function onDragEnd({ active, over, delta, activatorEvent }: DragEndEvent) {
+  /** 指针所在的日期 */
+  function dayAtPointer(): string | null {
+    if (!pointer.current || !bodyRef.current) return null;
+    const rect = bodyRef.current.getBoundingClientRect();
+    return addDaysStr(viewStart, Math.floor((pointer.current.x - rect.left) / COL));
+  }
+
+  function trackDrop({ over }: DragMoveEvent | DragOverEvent) {
+    setDropStart(over?.id === 'gantt' ? dayAtPointer() : null);
+  }
+
+  function endDrag() {
     setActiveId(null);
+    setDropStart(null);
+  }
+
+  async function onDragEnd({ active, over }: DragEndEvent) {
+    endDrag();
     if (!over) return;
     const task = pool.find((t) => t.id === active.id);
     if (!task) return;
     if (over.id === 'gantt') {
-      const x0 = (activatorEvent as PointerEvent).clientX;
-      if (typeof x0 !== 'number' || !bodyRef.current) {
-        setPlacing(task);
-        return;
-      }
-      const rect = bodyRef.current.getBoundingClientRect();
-      const idx = Math.floor((x0 + delta.x - rect.left) / COL);
-      await placeLongTask(task, addDaysStr(viewStart, idx), today);
+      const start = dayAtPointer();
+      if (start) await placeLongTask(task, start, today);
+      else setPlacing(task);
       return;
     }
     if (active.id !== over.id) {
@@ -88,8 +91,11 @@ export default function GanttPage() {
   return (
     <DndContext
       sensors={sensors}
+      collisionDetection={collisionDetection}
       onDragStart={(e) => setActiveId(String(e.active.id))}
-      onDragCancel={() => setActiveId(null)}
+      onDragMove={trackDrop}
+      onDragOver={trackDrop}
+      onDragCancel={endDrag}
       onDragEnd={onDragEnd}
     >
       <div className="flex flex-col gap-4 lg:flex-row">
@@ -100,7 +106,7 @@ export default function GanttPage() {
               + 新建
             </button>
           </div>
-          <p className="mb-2 text-xs text-slate-500">拖动 ⋮⋮ 调整顺序，或拖到右侧甘特图排期</p>
+          <p className="mb-2 text-xs text-slate-500">拖动卡片调整顺序，或拖到右侧甘特图排期（手机上长按后拖动）</p>
           <SortableContext items={pool.map((t) => t.id)} strategy={verticalListSortingStrategy}>
             <div className="space-y-2">
               {pool.map((t) => (
@@ -139,16 +145,21 @@ export default function GanttPage() {
             today={today}
             now={now}
             bodyRef={bodyRef}
+            preview={activeTask ? { task: activeTask, start: dropStart } : null}
             onOpen={setDetail}
           />
-          <p className="mt-2 text-xs text-slate-500">
-            拖动色条可改开始日期，拖右边缘可改耗时；红色 DDL 标记为截止日；红色竖线为当前时间。
-          </p>
+          {activeTask ? (
+            <DropHint task={activeTask} today={today} />
+          ) : (
+            <p className="mt-2 text-xs text-slate-500">
+              拖动色条可改开始日期，拖右边缘可改耗时；红色 DDL 标记为截止日；红色竖线为当前时间。
+            </p>
+          )}
         </section>
       </div>
 
       <DragOverlay>
-        {activeTask && (
+        {activeTask && !dropStart && (
           <div className="rounded-md bg-indigo-500 px-3 py-2 text-sm text-white shadow-lg">{activeTask.title}</div>
         )}
       </DragOverlay>
@@ -171,6 +182,22 @@ export default function GanttPage() {
         />
       )}
     </DndContext>
+  );
+}
+
+/** 范围可能超出当前视图，所以同时用文字说明 */
+function DropHint({ task, today }: { task: LongTask; today: string }) {
+  if (!canStartOn(today, task.duration_days, task.deadline, today)) {
+    return (
+      <p className="mt-2 text-xs text-rose-600">
+        耗时 {task.duration_days} 天，今天开始也会晚于 deadline（{task.deadline}），请先编辑耗时或 deadline。
+      </p>
+    );
+  }
+  return (
+    <p className="mt-2 text-xs text-emerald-700">
+      绿色区域可放入：{today} 至 {task.deadline}，最晚 {latestStart(task.duration_days, task.deadline)} 开始；虚线条是松手后的位置。
+    </p>
   );
 }
 

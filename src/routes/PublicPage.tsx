@@ -5,6 +5,7 @@ import { Tags } from '../components/Tags';
 import { toast } from '../components/toast';
 import type { PublicPayloadLong, PublicPayloadShort, PublicTask } from '../db/types';
 import { acceptPublicTask, pendingTasks, inboxStore, setAction } from '../features/public/inbox';
+import { NewPublicTaskDialog } from '../features/public/NewPublicTaskDialog';
 import { courseName } from '../lib/courses';
 import { fmtDuration } from '../lib/dates';
 import { useStore } from '../lib/store';
@@ -93,6 +94,7 @@ export default function PublicPage() {
   const session = useStore(sessionStore);
   const state = useStore(inboxStore);
   const uid = session?.user.id;
+  const [creating, setCreating] = useState(false);
 
   if (!supabase || !session) return <LoginHint />;
 
@@ -109,7 +111,8 @@ export default function PublicPage() {
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <section>
-        <h2 className="mb-2 font-semibold">收到的任务</h2>
+        {/* 与右栏带按钮的标题行同高 */}
+        <h2 className="mb-2 flex h-[34px] items-center font-semibold">收到的任务</h2>
         <div className="space-y-2">
           {pending.map((t) => (
             <PendingTaskCard key={t.id} task={t} />
@@ -120,8 +123,15 @@ export default function PublicPage() {
         </div>
       </section>
       <section>
-        <h2 className="mb-2 font-semibold">我发布的</h2>
-        <p className="mb-2 text-xs text-slate-500">在甘特图或日程表的任务池中点「发布」即可发布任务。</p>
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="font-semibold">我发布的</h2>
+          <button className="btn-primary" onClick={() => setCreating(true)}>
+            + 发布任务
+          </button>
+        </div>
+        <p className="mb-2 text-xs text-slate-500">
+          已有的任务可以在甘特图或日程表的任务池中点「发布」，拆分过的任务会带上子任务。
+        </p>
         <div className="space-y-2">
           {mine.map((t) => (
             <div key={t.id} className="card p-3">
@@ -137,6 +147,7 @@ export default function PublicPage() {
           {mine.length === 0 && <p className="py-6 text-center text-sm text-slate-400">还没有发布过</p>}
         </div>
       </section>
+      {creating && <NewPublicTaskDialog onClose={() => setCreating(false)} />}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { toast } from '../../components/toast';
-import { addFromPublic } from '../../db/repo';
-import type { PublicTask } from '../../db/types';
+import { addFromPublic, getProfile } from '../../db/repo';
+import type { PublicPayloadLong, PublicPayloadShort, PublicTask } from '../../db/types';
 import { createStore, useStore } from '../../lib/store';
 import { supabase } from '../../supabase/client';
 import { sessionStore } from '../../sync/syncEngine';
@@ -33,6 +33,35 @@ export async function loadInbox() {
   const actions: InboxState['actions'] = {};
   for (const a of acts ?? []) actions[a.public_task_id] = a.action;
   inboxStore.set({ tasks: (tasks ?? []) as PublicTask[], actions, loaded: true });
+}
+
+/** 发布到白板，返回是否成功；成功后刷新，「我发布的」马上能看到 */
+export async function publishPublicTask(
+  kind: PublicTask['kind'],
+  payload: PublicPayloadLong | PublicPayloadShort,
+  scopes: string[],
+): Promise<boolean> {
+  const session = sessionStore.get();
+  if (!supabase || !session) return false;
+  if (!scopes.length) {
+    toast('请至少选择一门课程作为可见范围', 'error');
+    return false;
+  }
+  const profile = await getProfile();
+  const { error } = await supabase.from('public_tasks').insert({
+    author_id: session.user.id,
+    author_name: profile.display_name || null,
+    kind,
+    payload,
+    scopes,
+  });
+  if (error) {
+    toast(`发布失败：${error.message}`, 'error');
+    return false;
+  }
+  toast('已发布到白板');
+  void loadInbox();
+  return true;
 }
 
 export async function setAction(publicTaskId: string, action: 'added' | 'trashed' | null) {

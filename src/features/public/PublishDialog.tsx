@@ -1,13 +1,11 @@
 import { useState } from 'react';
 import { CoursePicker } from '../../components/CoursePicker';
 import { Modal } from '../../components/Modal';
-import { toast } from '../../components/toast';
 import { db } from '../../db/dexie';
-import { getProfile } from '../../db/repo';
 import type { LongTask, PublicPayloadLong, PublicPayloadShort, ShortTask } from '../../db/types';
 import { useStore } from '../../lib/store';
-import { supabase } from '../../supabase/client';
 import { sessionStore } from '../../sync/syncEngine';
+import { publishPublicTask } from './inbox';
 
 type Props =
   | { kind: 'long'; task: LongTask; onClose: () => void }
@@ -19,11 +17,6 @@ export function PublishDialog(props: Props) {
   const [busy, setBusy] = useState(false);
 
   async function publish() {
-    if (!supabase || !session) return;
-    if (!scopes.length) {
-      toast('请至少选择一门课程作为可见范围', 'error');
-      return;
-    }
     setBusy(true);
     let payload: PublicPayloadLong | PublicPayloadShort;
     if (props.kind === 'long') {
@@ -41,21 +34,9 @@ export function PublishDialog(props: Props) {
         subtasks: children.map((c) => ({ title: c.title, duration_min: c.duration_min, tags: c.tags })),
       };
     }
-    const profile = await getProfile();
-    const { error } = await supabase.from('public_tasks').insert({
-      author_id: session.user.id,
-      author_name: profile.display_name || null,
-      kind: props.kind,
-      payload,
-      scopes,
-    });
+    const ok = await publishPublicTask(props.kind, payload, scopes);
     setBusy(false);
-    if (error) {
-      toast(`发布失败：${error.message}`, 'error');
-      return;
-    }
-    toast('已发布到白板');
-    props.onClose();
+    if (ok) props.onClose();
   }
 
   return (

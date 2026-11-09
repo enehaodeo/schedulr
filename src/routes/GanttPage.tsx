@@ -16,24 +16,13 @@ import { PublishDialog } from '../features/public/PublishDialog';
 import { addDaysStr, diffDays, todayStr } from '../lib/dates';
 import { useDropPointer, useTaskSensors } from '../lib/taskDrag';
 import { useNow } from '../lib/useNow';
+import { orderPatches, useOptimisticRows } from '../lib/useOptimisticRows';
 
 const DAYS = 63;
 
-export async function placeLongTask(task: LongTask, start: string, today: string): Promise<boolean> {
-  if (diffDays(start, today) < 0) {
-    toast('开始日期不能早于今天', 'error');
-    return false;
-  }
-  if (!fitsDeadline(start, task.duration_days, task.deadline)) {
-    toast(`结束时间不能晚于 deadline（最晚 ${latestStart(task.duration_days, task.deadline)} 开始）`, 'error');
-    return false;
-  }
-  await updateLongTask(task.id, { status: 'scheduled', start_date: start });
-  return true;
-}
-
 export default function GanttPage() {
-  const tasks = useLiveQuery(() => db.long_tasks.filter((t) => !t.deleted).toArray(), []) ?? [];
+  const stored = useLiveQuery(() => db.long_tasks.filter((t) => !t.deleted).toArray(), []) ?? [];
+  const [tasks, applyOptimistic] = useOptimisticRows(stored);
   const pool = tasks.filter((t) => t.status === 'pool').sort((a, b) => a.sort_order - b.sort_order);
   const scheduled = tasks
     .filter((t) => t.status === 'scheduled')
@@ -52,6 +41,20 @@ export default function GanttPage() {
 
   const sensors = useTaskSensors();
   const { pointer, collisionDetection } = useDropPointer('gantt', bodyRef);
+
+  async function place(task: LongTask, start: string): Promise<boolean> {
+    if (diffDays(start, today) < 0) {
+      toast('开始日期不能早于今天', 'error');
+      return false;
+    }
+    if (!fitsDeadline(start, task.duration_days, task.deadline)) {
+      toast(`结束时间不能晚于 deadline（最晚 ${latestStart(task.duration_days, task.deadline)} 开始）`, 'error');
+      return false;
+    }
+    const patch = { status: 'scheduled' as const, start_date: start };
+    await applyOptimistic({ [task.id]: patch }, () => updateLongTask(task.id, patch));
+    return true;
+  }
 
   /** 指针所在的日期 */
   function dayAtPointer(): string | null {
@@ -76,13 +79,14 @@ export default function GanttPage() {
     if (!task) return;
     if (over.id === 'gantt') {
       const start = dayAtPointer();
-      if (start) await placeLongTask(task, start, today);
+      if (start) await place(task, start);
       else setPlacing(task);
       return;
     }
     if (active.id !== over.id) {
       const ids = pool.map((t) => t.id);
-      await reorder('long_tasks', arrayMove(ids, ids.indexOf(String(active.id)), ids.indexOf(String(over.id))));
+      const ordered = arrayMove(ids, ids.indexOf(String(active.id)), ids.indexOf(String(over.id)));
+      await applyOptimistic(orderPatches(ordered), () => reorder('long_tasks', ordered));
     }
   }
 
@@ -158,7 +162,8 @@ export default function GanttPage() {
         </section>
       </div>
 
-      <DragOverlay>
+      {/* 不要落下动画：它播放时会把原卡片隐藏，松手后卡片就消失一下 */}
+      <DragOverlay dropAnimation={null}>
         {activeTask && !dropStart && (
           <div className="rounded-md bg-indigo-500 px-3 py-2 text-sm text-white shadow-lg">{activeTask.title}</div>
         )}
@@ -166,7 +171,14 @@ export default function GanttPage() {
 
       {editing && <LongTaskForm task={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} />}
       {publishing && <PublishDialog kind="long" task={publishing} onClose={() => setPublishing(null)} />}
-      {placing && <PlaceDialog task={placing} today={today} onClose={() => setPlacing(null)} />}
+      {placing && (
+        <PlaceDialog
+          task={placing}
+          today={today}
+          onPlace={async (start) => (await place(placing, start)) && setPlacing(null)}
+          onClose={() => setPlacing(null)}
+        />
+      )}
       {detail && (
         <DetailDialog
           task={tasks.find((t) => t.id === detail.id) ?? detail}
@@ -246,7 +258,17 @@ function PoolCard({
   );
 }
 
-function PlaceDialog({ task, today, onClose }: { task: LongTask; today: string; onClose: () => void }) {
+function PlaceDialog({
+  task,
+  today,
+  onPlace,
+  onClose,
+}: {
+  task: LongTask;
+  today: string;
+  onPlace: (start: string) => void;
+  onClose: () => void;
+}) {
   const latest = latestStart(task.duration_days, task.deadline);
   const [start, setStart] = useState(today);
   const impossible = diffDays(latest, today) < 0;
@@ -269,7 +291,7 @@ function PlaceDialog({ task, today, onClose }: { task: LongTask; today: string; 
             <button className="btn" onClick={onClose}>
               取消
             </button>
-            <button className="btn-primary" onClick={async () => (await placeLongTask(task, start, today)) && onClose()}>
+            <button className="btn-primary" onClick={() => onPlace(start)}>
               确定
             </button>
           </div>

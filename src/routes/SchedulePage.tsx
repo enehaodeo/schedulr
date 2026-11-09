@@ -30,11 +30,13 @@ import {
 } from '../lib/dates';
 import { useDropPointer, useTaskSensors } from '../lib/taskDrag';
 import { useNow } from '../lib/useNow';
+import { orderPatches, useOptimisticRows } from '../lib/useOptimisticRows';
 
 type FormState = { task?: ShortTask; parent?: ShortTask; hasChildren?: boolean } | null;
 
 export default function SchedulePage() {
-  const all = useLiveQuery(() => db.short_tasks.filter((t) => !t.deleted).toArray(), []) ?? [];
+  const stored = useLiveQuery(() => db.short_tasks.filter((t) => !t.deleted).toArray(), []) ?? [];
+  const [all, applyOptimistic] = useOptimisticRows(stored);
   const avail = useLiveQuery(() => db.availability.toArray(), []) ?? [];
   const now = useNow(30_000);
   const [date, setDate] = useState(() => todayStr());
@@ -76,7 +78,8 @@ export default function SchedulePage() {
     }
     const start = dateMinToMs(date, startMin);
     const end = start + task.duration_min * MIN_MS;
-    await updateShortTask(task.id, { status: 'scheduled', start_at: start, end_at: end });
+    const patch = { status: 'scheduled' as const, start_at: start, end_at: end };
+    await applyOptimistic({ [task.id]: patch }, () => updateShortTask(task.id, patch));
     return true;
   }
 
@@ -116,7 +119,8 @@ export default function SchedulePage() {
     if (!overTask || overTask.parent_id !== task.parent_id || active.id === over.id) return;
     const siblings = task.parent_id ? childrenOf(all, task.parent_id) : tops;
     const ids = siblings.map((t) => t.id);
-    await reorder('short_tasks', arrayMove(ids, ids.indexOf(task.id), ids.indexOf(overTask.id)));
+    const ordered = arrayMove(ids, ids.indexOf(task.id), ids.indexOf(overTask.id));
+    await applyOptimistic(orderPatches(ordered), () => reorder('short_tasks', ordered));
   }
 
   async function runAuto() {
@@ -272,7 +276,8 @@ export default function SchedulePage() {
         </section>
       </div>
 
-      <DragOverlay>
+      {/* 不要落下动画：它播放时会把原卡片隐藏，松手后卡片就消失一下 */}
+      <DragOverlay dropAnimation={null}>
         {activeTask && !(canDrop && dropMin !== null) && (
           <div className="rounded-md bg-indigo-500 px-3 py-2 text-sm text-white shadow-lg">
             {activeTask.title} · {fmtDuration(totalDuration(all, activeTask))}

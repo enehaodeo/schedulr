@@ -4,7 +4,7 @@ import { AuthForm } from '../components/AuthForm';
 import { CoursePicker } from '../components/CoursePicker';
 import { toast } from '../components/toast';
 import { db } from '../db/dexie';
-import { addAvailability, getProfile, removeAvailability, saveProfile } from '../db/repo';
+import { editAvailability, getProfile, removeAvailability, saveProfile } from '../db/repo';
 import { enableNotifications } from '../features/reminders/push';
 import { fmtMin, parseHHMM, WEEKDAYS } from '../lib/dates';
 import { useStore } from '../lib/store';
@@ -124,7 +124,7 @@ function WeeklyTemplate() {
       toast('结束时间必须晚于开始时间', 'error');
       return;
     }
-    await addAvailability({ kind: 'weekly', weekday, date: null, start_min: s, end_min: e });
+    await editAvailability({ kind: 'weekly', weekday }, (cur) => [...cur, { start_min: s, end_min: e }]);
   }
 
   return (

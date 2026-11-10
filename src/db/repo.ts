@@ -1,6 +1,7 @@
+import { mergeRanges, type MinRange } from '../features/availability/windows';
+import { fromDateStr } from '../lib/dates';
 import { db, getMeta, setMeta, syncTable } from './dexie';
 import type {
-  Availability,
   LongTask,
   Profile,
   PublicPayloadLong,
@@ -149,15 +150,63 @@ export async function reorder(table: 'long_tasks' | 'short_tasks', orderedIds: s
 
 // ---------- 可用时间 ----------
 
-export async function addAvailability(
-  input: Pick<Availability, 'kind' | 'weekday' | 'date' | 'start_min' | 'end_min'>,
-) {
-  await db.availability.add({ ...(await newMeta()), ...input });
+export async function removeAvailability(id: string) {
+  await db.availability.update(id, stamp({ deleted: true }));
   changed();
 }
 
-export async function removeAvailability(id: string) {
-  await db.availability.update(id, stamp({ deleted: true }));
+export type AvailTarget = { kind: 'date'; date: string } | { kind: 'weekly'; weekday: number };
+
+/**
+ * 修改某个“指定日期”或“每周某天”的全部可用时间：edit 拿到当前时段（已合并），返回新的时段，
+ * 结果会自动合并首尾相接的时段，再尽量复用原有行写回。
+ * 指定日期还没有单独设置时，以当天的每周模板为起点，并写入空标记保证覆盖模板。
+ */
+export async function editAvailability(target: AvailTarget, edit: (current: MinRange[]) => MinRange[]) {
+  await db.transaction('rw', db.availability, db.meta, async () => {
+    const live = (await db.availability.toArray()).filter((a) => !a.deleted);
+    const group =
+      target.kind === 'date'
+        ? live.filter((a) => a.kind === 'date' && a.date === target.date)
+        : live.filter((a) => a.kind === 'weekly' && a.weekday === target.weekday);
+    const base =
+      target.kind === 'date' && !group.length
+        ? live.filter((a) => a.kind === 'weekly' && a.weekday === fromDateStr(target.date).getDay())
+        : group;
+    const next = mergeRanges(edit(mergeRanges(base)));
+
+    const rows = group.filter((a) => a.end_min > a.start_min).sort((a, b) => a.start_min - b.start_min);
+    for (let i = 0; i < Math.max(rows.length, next.length); i++) {
+      const row = rows[i];
+      const r = next[i];
+      if (row && r) {
+        if (row.start_min !== r.start_min || row.end_min !== r.end_min) {
+          await db.availability.update(row.id, stamp({ start_min: r.start_min, end_min: r.end_min }));
+        }
+      } else if (row) {
+        await db.availability.update(row.id, stamp({ deleted: true }));
+      } else {
+        await db.availability.add({
+          ...(await newMeta()),
+          ...(target.kind === 'date'
+            ? { kind: 'date', date: target.date, weekday: null }
+            : { kind: 'weekly', weekday: target.weekday, date: null }),
+          ...r,
+        });
+      }
+    }
+    // 空标记：即使当天一个时段都不剩，也照样覆盖每周模板
+    if (target.kind === 'date' && !group.some((a) => a.end_min <= a.start_min)) {
+      await db.availability.add({
+        ...(await newMeta()),
+        kind: 'date',
+        date: target.date,
+        weekday: null,
+        start_min: 0,
+        end_min: 0,
+      });
+    }
+  });
   changed();
 }
 

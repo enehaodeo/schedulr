@@ -1,9 +1,10 @@
 import { useDroppable } from '@dnd-kit/core';
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
 import { toast } from '../../components/toast';
-import { addAvailability, removeAvailability, updateShortTask } from '../../db/repo';
+import { editAvailability, updateShortTask, type AvailTarget } from '../../db/repo';
 import type { Availability, ShortTask } from '../../db/types';
 import { dateMinToMs, fmtMin, fromDateStr, MIN_MS, msToDayMin, todayStr } from '../../lib/dates';
+import { mergeRanges, type MinRange } from '../availability/windows';
 import { canPlace, type Interval } from '../scheduler/autoSchedule';
 
 export const HOUR = 48;
@@ -58,6 +59,12 @@ export function DayTimeline({
     return clampDay(pxToMin(clientY - rect.top));
   }
 
+  const target: AvailTarget =
+    scope === 'date' ? { kind: 'date', date } : { kind: 'weekly', weekday: fromDateStr(date).getDay() };
+  // 当天显示的时段都来自同一种设置（指定日期或每周模板），合并后显示
+  const shownKind = slots[0]?.kind ?? scope;
+  const ranges = mergeRanges(slots);
+
   // 编辑可用时间：在空白处按下拖动框选
   function down(e: ReactPointerEvent) {
     if (!editMode) return;
@@ -75,35 +82,28 @@ export function DayTimeline({
     const start = Math.min(d.from, d.to);
     const end = Math.max(d.from, d.to);
     if (end - start < 15) return;
-    await materializeDate();
-    await addAvailability(
-      scope === 'date'
-        ? { kind: 'date', date, weekday: null, start_min: start, end_min: end }
-        : { kind: 'weekly', weekday: fromDateStr(date).getDay(), date: null, start_min: start, end_min: end },
-    );
+    await editAvailability(target, (cur) => [...cur, { start_min: start, end_min: end }]);
   }
 
-  /** 改“仅此日期”时，先把当天沿用的每周模板复制成指定日期的设置 */
-  async function materializeDate(except?: string) {
-    if (scope !== 'date' || slots.some((s) => s.kind === 'date')) return;
-    for (const s of slots) {
-      if (s.id === except) continue;
-      await addAvailability({ kind: 'date', date, weekday: null, start_min: s.start_min, end_min: s.end_min });
+  /** 每周模板下不能改“仅此日期”的设置 */
+  function editable(): boolean {
+    if (scope === 'weekly' && shownKind === 'date') {
+      toast('这是“仅此日期”的设置，请切换到“仅此日期”后修改', 'error');
+      return false;
     }
-    // 空标记：保证当天确实覆盖每周模板
-    await addAvailability({ kind: 'date', date, weekday: null, start_min: 0, end_min: 0 });
+    return true;
   }
 
-  async function removeSlot(s: Availability) {
-    if (scope === 'date' && s.kind === 'weekly') {
-      await materializeDate(s.id);
-      return;
-    }
-    if (scope === 'weekly' && s.kind === 'date') {
-      toast('这是“仅此日期”的设置，请切换到“仅此日期”后删除', 'error');
-      return;
-    }
-    await removeAvailability(s.id);
+  const same = (a: MinRange, b: MinRange) => a.start_min === b.start_min && a.end_min === b.end_min;
+
+  async function removeSlot(r: MinRange) {
+    if (!editable()) return;
+    await editAvailability(target, (cur) => cur.filter((c) => !same(c, r)));
+  }
+
+  async function resizeSlot(from: MinRange, to: MinRange) {
+    if (same(from, to) || !editable()) return;
+    await editAvailability(target, (cur) => [...cur.filter((c) => !same(c, from)), to]);
   }
 
   return (
@@ -126,29 +126,17 @@ export function DayTimeline({
           </div>
         ))}
 
-        {slots
-          .filter((s) => s.end_min > s.start_min)
-          .map((s) => (
-            <div
-              key={s.id}
-              className="absolute inset-x-0 border-y border-emerald-200 bg-emerald-50"
-              style={{ top: minToPx(s.start_min), height: minToPx(s.end_min - s.start_min) }}
-            >
-              <span className="absolute right-1 top-0.5 text-[10px] text-emerald-700">
-                可用 {fmtMin(s.start_min)}-{fmtMin(s.end_min)}
-                {s.kind === 'weekly' ? '（每周）' : ''}
-              </span>
-              {editMode && (
-                <button
-                  className="absolute bottom-0.5 right-1 rounded bg-white px-1 text-[10px] text-rose-600 shadow"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={() => removeSlot(s)}
-                >
-                  删除
-                </button>
-              )}
-            </div>
-          ))}
+        {ranges.map((r) => (
+          <Slot
+            key={`${r.start_min}-${r.end_min}`}
+            range={r}
+            weekly={shownKind === 'weekly'}
+            editMode={editMode}
+            minuteAt={minuteAt}
+            onResize={(to) => resizeSlot(r, to)}
+            onRemove={() => removeSlot(r)}
+          />
+        ))}
 
         {draft && (
           <div
@@ -178,6 +166,98 @@ export function DayTimeline({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** 一段可用时间；编辑时可拖动上下边缘调整开始和结束时间 */
+function Slot({
+  range,
+  weekly,
+  editMode,
+  minuteAt,
+  onResize,
+  onRemove,
+}: {
+  range: MinRange;
+  weekly: boolean;
+  editMode: boolean;
+  minuteAt: (clientY: number) => number;
+  onResize: (to: MinRange) => void;
+  onRemove: () => void;
+}) {
+  const [edge, setEdge] = useState<'start' | 'end' | null>(null);
+  const [preview, setPreview] = useState<MinRange | null>(null);
+  const r = preview ?? range;
+
+  function down(which: 'start' | 'end') {
+    return (e: ReactPointerEvent) => {
+      e.stopPropagation();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      setEdge(which);
+      setPreview(range);
+    };
+  }
+  function move(e: ReactPointerEvent) {
+    if (!edge) return;
+    const m = snap(minuteAt(e.clientY), 15);
+    setPreview(
+      edge === 'start'
+        ? { start_min: Math.min(m, range.end_min - 15), end_min: range.end_min }
+        : { start_min: range.start_min, end_min: Math.max(m, range.start_min + 15) },
+    );
+  }
+  function up(e: ReactPointerEvent) {
+    e.stopPropagation();
+    const p = preview;
+    setEdge(null);
+    setPreview(null);
+    if (p) onResize(p);
+  }
+  function cancel() {
+    setEdge(null);
+    setPreview(null);
+  }
+
+  const handle = (which: 'start' | 'end') => (
+    <div
+      className={`absolute inset-x-0 z-20 flex h-3 cursor-ns-resize touch-none justify-center ${
+        which === 'start' ? '-top-1.5' : '-bottom-1.5'
+      }`}
+      title={which === 'start' ? '拖动调整开始时间' : '拖动调整结束时间'}
+      onPointerDown={down(which)}
+      onPointerMove={move}
+      onPointerUp={up}
+      onPointerCancel={cancel}
+    >
+      <span className="mt-[5px] h-[3px] w-10 rounded-full bg-emerald-500" />
+    </div>
+  );
+
+  return (
+    <div
+      className={`absolute inset-x-0 border-y bg-emerald-50 ${edge ? 'z-20 border-emerald-500' : 'border-emerald-200'}`}
+      style={{ top: minToPx(r.start_min), height: minToPx(r.end_min - r.start_min) }}
+    >
+      <span className="absolute right-1 top-0.5 text-[10px] text-emerald-700">
+        可用 {fmtMin(r.start_min)}-{fmtMin(r.end_min)}
+        {weekly ? '（每周）' : ''}
+      </span>
+      {editMode && (
+        <>
+          {handle('start')}
+          {handle('end')}
+          {!edge && (
+            <button
+              className="absolute bottom-2 right-1 z-20 rounded bg-white px-1 text-[10px] text-rose-600 shadow"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={onRemove}
+            >
+              删除
+            </button>
+          )}
+        </>
+      )}
     </div>
   );
 }

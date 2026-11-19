@@ -272,6 +272,11 @@ export default function SchedulePage() {
                 : null
             }
             onOpen={setDetail}
+            onMove={(t, start, end) =>
+              applyOptimistic({ [t.id]: { start_at: start, end_at: end } }, () =>
+                updateShortTask(t.id, { start_at: start, end_at: end }),
+              )
+            }
           />
         </section>
       </div>

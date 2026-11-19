@@ -1,7 +1,7 @@
 import { useDroppable } from '@dnd-kit/core';
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
 import { toast } from '../../components/toast';
-import { editAvailability, updateShortTask, type AvailTarget } from '../../db/repo';
+import { editAvailability, type AvailTarget } from '../../db/repo';
 import type { Availability, ShortTask } from '../../db/types';
 import { dateMinToMs, fmtMin, fromDateStr, MIN_MS, msToDayMin, todayStr } from '../../lib/dates';
 import { mergeRanges, type MinRange } from '../availability/windows';
@@ -27,6 +27,7 @@ export function DayTimeline({
   bodyRef,
   ghost,
   onOpen,
+  onMove,
 }: {
   date: string;
   now: number;
@@ -43,6 +44,8 @@ export function DayTimeline({
   /** 从任务池拖入时，松手后任务的位置；ok 表示这里可以放下 */
   ghost: { title: string; startMin: number; duration: number; ok: boolean } | null;
   onOpen: (t: ShortTask) => void;
+  /** 拖动已排任务后写入新时间；要用乐观更新，否则松手后任务会先闪回原位 */
+  onMove: (t: ShortTask, start: number, end: number) => Promise<unknown>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: 'timeline' });
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -146,7 +149,17 @@ export function DayTimeline({
         )}
 
         {tasks.map((t) => (
-          <Block key={t.id} task={t} date={date} now={now} windows={windows} busy={busy} disabled={editMode} onOpen={() => onOpen(t)} />
+          <Block
+            key={t.id}
+            task={t}
+            date={date}
+            now={now}
+            windows={windows}
+            busy={busy}
+            disabled={editMode}
+            onOpen={() => onOpen(t)}
+            onMove={(start, end) => onMove(t, start, end)}
+          />
         ))}
 
         {ghost && (
@@ -270,6 +283,7 @@ function Block({
   busy,
   disabled,
   onOpen,
+  onMove,
 }: {
   task: ShortTask;
   date: string;
@@ -278,24 +292,32 @@ function Block({
   busy: { id: string; start: number; end: number }[];
   disabled: boolean;
   onOpen: () => void;
+  onMove: (start: number, end: number) => Promise<unknown>;
 }) {
-  const [drag, setDrag] = useState<{ y0: number; d: number } | null>(null);
+  // moved：指针移动超过阈值后就算拖动，松手时不再当作单击
+  const [drag, setDrag] = useState<{ y0: number; d: number; moved: boolean } | null>(null);
   const startMin = msToDayMin(task.start_at!) + (drag?.d ?? 0);
 
   function down(e: ReactPointerEvent) {
     if (disabled) return;
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
-    setDrag({ y0: e.clientY, d: 0 });
+    setDrag({ y0: e.clientY, d: 0, moved: false });
   }
   function move(e: ReactPointerEvent) {
-    if (drag) setDrag({ ...drag, d: snap(pxToMin(e.clientY - drag.y0), 5) });
+    if (!drag) return;
+    const dy = e.clientY - drag.y0;
+    // 5 分钟只有 4 像素，阈值要小于它，否则挪 5 分钟会被当成单击
+    const moved = drag.moved || Math.abs(dy) >= 3;
+    if (!moved) return;
+    const d = snap(pxToMin(dy), 5);
+    if (moved !== drag.moved || d !== drag.d) setDrag({ ...drag, d, moved });
   }
-  async function up(e: ReactPointerEvent) {
+  async function up() {
     const d = drag;
     setDrag(null);
     if (!d) return;
-    if (Math.abs(e.clientY - d.y0) < 4) {
+    if (!d.moved) {
       onOpen();
       return;
     }
@@ -310,7 +332,7 @@ function Block({
       toast('必须放在可用时间内，且不能与其他任务重叠', 'error');
       return;
     }
-    await updateShortTask(task.id, { start_at: start, end_at: end });
+    await onMove(start, end);
   }
 
   return (

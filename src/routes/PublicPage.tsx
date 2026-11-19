@@ -82,6 +82,39 @@ export function PendingTaskCard({ task }: { task: PublicTask }) {
   );
 }
 
+/** 自己发布的任务卡片：可以撤回，也可以自己接受一份到任务池 */
+function MyTaskCard({ task, added, onRemove }: { task: PublicTask; added: boolean; onRemove: () => void }) {
+  const [busy, setBusy] = useState(false);
+
+  async function accept() {
+    setBusy(true);
+    try {
+      await acceptPublicTask(task);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card p-3">
+      <PublicTaskSummary task={task} />
+      <div className="mt-1 text-xs text-slate-400">可见范围：{task.scopes.map(courseName).join('、')}</div>
+      <div className="mt-1 flex items-center gap-2">
+        {added ? (
+          <span className="text-xs text-emerald-600">已加入任务池</span>
+        ) : (
+          <button className="btn-xs text-indigo-600" disabled={busy} onClick={accept}>
+            接受
+          </button>
+        )}
+        <button className="btn-xs text-rose-600" disabled={busy} onClick={onRemove}>
+          撤回
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function LoginHint() {
   return (
     <div className="card p-6 text-center text-sm text-slate-500">
@@ -134,15 +167,7 @@ export default function PublicPage() {
         </p>
         <div className="space-y-2">
           {mine.map((t) => (
-            <div key={t.id} className="card p-3">
-              <PublicTaskSummary task={t} />
-              <div className="mt-1 text-xs text-slate-400">
-                可见范围：{t.scopes.map(courseName).join('、')}
-              </div>
-              <button className="btn-xs mt-1 text-rose-600" onClick={() => removeMine(t)}>
-                撤回
-              </button>
-            </div>
+            <MyTaskCard key={t.id} task={t} added={state.actions[t.id] === 'added'} onRemove={() => removeMine(t)} />
           ))}
           {mine.length === 0 && <p className="py-6 text-center text-sm text-slate-400">还没有发布过</p>}
         </div>

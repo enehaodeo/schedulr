@@ -1,11 +1,13 @@
 import { mergeRanges, type MinRange } from '../features/availability/windows';
-import { fromDateStr } from '../lib/dates';
+import type { Occurrence } from '../features/recurring/plan';
+import { fromDateStr, MIN_MS } from '../lib/dates';
 import { db, getMeta, setMeta, syncTable } from './dexie';
 import type {
   LongTask,
   Profile,
   PublicPayloadLong,
   PublicPayloadShort,
+  RecurringTask,
   ShortTask,
   SyncMeta,
 } from './types';
@@ -114,6 +116,7 @@ export async function addShortTask(input: ShortTaskInput): Promise<string> {
     status: 'pool',
     start_at: null,
     end_at: null,
+    recurring_id: null,
   };
   await db.short_tasks.add(row);
   changed();
@@ -134,6 +137,89 @@ export async function settleParent(parentId: string | null) {
   if (children.length && children.every((c) => c.status === 'trash')) {
     await updateShortTask(parentId, { status: 'trash' });
   }
+}
+
+// ---------- 周期任务 ----------
+
+export type RecurringInput = Pick<
+  RecurringTask,
+  'title' | 'tags' | 'weekdays' | 'start_min' | 'end_min' | 'start_date' | 'end_date'
+>;
+
+export async function addRecurring(input: RecurringInput): Promise<string> {
+  const row: RecurringTask = { ...(await newMeta()), ...input };
+  await db.recurring_tasks.add(row);
+  changed();
+  return row.id;
+}
+
+/** 修改后 updated_at 变化，周期任务监视器会移除未来的旧实例并按新设置重新生成 */
+export async function updateRecurring(id: string, patch: Partial<RecurringInput>) {
+  await db.recurring_tasks.update(id, stamp(patch));
+  changed();
+}
+
+export async function removeRecurring(id: string) {
+  await db.recurring_tasks.update(id, stamp({ deleted: true }));
+  changed();
+}
+
+/**
+ * 写入一个周期任务实例。updated_at 取规则版本而不是当前时间：
+ * 各设备生成的同一实例内容相同，而用户之后的任何修改（含删除）都更晚，同步时总能胜出。
+ */
+async function putOccurrence(occ: Occurrence, scheduled: boolean) {
+  const r = occ.rule;
+  const row: ShortTask = {
+    id: occ.id,
+    user_id: await currentUserId(),
+    updated_at: scheduled ? r.updated_at : Date.now(),
+    deleted: false,
+    dirty: 1,
+    title: r.title,
+    duration_min: Math.round((occ.end - occ.start) / MIN_MS),
+    tags: r.tags,
+    parent_id: null,
+    sort_order: await nextSortOrder('short_tasks'),
+    status: scheduled ? 'scheduled' : 'pool',
+    start_at: scheduled ? occ.start : null,
+    end_at: scheduled ? occ.end : null,
+    source_public_id: null,
+    recurring_id: r.id,
+  };
+  await db.short_tasks.put(row);
+}
+
+/** 排入不冲突的实例，移除规则修改或删除后作废的实例 */
+export async function applyRecurring(add: Occurrence[], remove: string[]) {
+  if (!add.length && !remove.length) return;
+  await db.transaction('rw', db.short_tasks, db.meta, async () => {
+    for (const id of remove) {
+      const t = await db.short_tasks.get(id);
+      if (t && !t.deleted) await db.short_tasks.update(id, stamp({ deleted: true }));
+    }
+    for (const occ of add) {
+      if (!(await db.short_tasks.get(occ.id))) await putOccurrence(occ, true);
+    }
+  });
+  changed();
+}
+
+/**
+ * 处理冲突：take = 排入周期任务，冲突的原任务移回任务池；
+ * 否则保留原日程，这次的周期任务放进任务池。
+ */
+export async function resolveRecurringConflict(occ: Occurrence, clashes: string[], take: boolean) {
+  await db.transaction('rw', db.short_tasks, db.meta, async () => {
+    if (await db.short_tasks.get(occ.id)) return;
+    if (take) {
+      for (const id of clashes) {
+        await db.short_tasks.update(id, stamp({ status: 'pool' as const, start_at: null, end_at: null }));
+      }
+    }
+    await putOccurrence(occ, take);
+  });
+  changed();
 }
 
 // ---------- 排序 ----------

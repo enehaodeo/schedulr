@@ -12,6 +12,7 @@ import { reorder, settleParent, updateShortTask } from '../db/repo';
 import type { ShortTask } from '../db/types';
 import { slotsForDate, windowsForDate } from '../features/availability/windows';
 import { PublishDialog } from '../features/public/PublishDialog';
+import { RecurringDialog } from '../features/recurring/RecurringDialog';
 import { autoSchedule, canPlace, type Interval } from '../features/scheduler/autoSchedule';
 import { DayTimeline, HOUR, type AvailScope } from '../features/shortTasks/DayTimeline';
 import { ShortTaskForm } from '../features/shortTasks/ShortTaskForm';
@@ -44,6 +45,7 @@ export default function SchedulePage() {
   const [scope, setScope] = useState<AvailScope>('date');
   const [form, setForm] = useState<FormState>(null);
   const [publishing, setPublishing] = useState<ShortTask | null>(null);
+  const [recurringOpen, setRecurringOpen] = useState(false);
   const [placing, setPlacing] = useState<ShortTask | null>(null);
   const [detail, setDetail] = useState<ShortTask | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -164,7 +166,10 @@ export default function SchedulePage() {
       <div className="flex flex-col gap-4 lg:flex-row">
         <section className="lg:w-96 lg:shrink-0">
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="font-semibold">短期任务池</h2>
+            <h2 className="mr-auto font-semibold">短期任务池</h2>
+            <button className="btn mr-2" onClick={() => setRecurringOpen(true)}>
+              周期任务
+            </button>
             <button className="btn-primary" onClick={() => setForm({})}>
               + 新建
             </button>
@@ -291,6 +296,7 @@ export default function SchedulePage() {
       </DragOverlay>
 
       {form && <ShortTaskForm {...form} onClose={() => setForm(null)} />}
+      {recurringOpen && <RecurringDialog onClose={() => setRecurringOpen(false)} />}
       {publishing && <PublishDialog kind="short" task={publishing} onClose={() => setPublishing(null)} />}
       {placing && (
         <PlaceDialog
@@ -306,6 +312,7 @@ export default function SchedulePage() {
           <p className="text-sm">
             {format(detail.start_at!, 'M月d日 HH:mm')} - {format(detail.end_at!, 'HH:mm')}（{fmtDuration(detail.duration_min)}）
           </p>
+          {detail.recurring_id && <p className="mt-1 text-xs text-indigo-600">↻ 由周期任务自动排入</p>}
           <div className="mt-1">
             <Tags tags={detail.tags} />
           </div>
@@ -359,7 +366,14 @@ function TaskLine({
   return (
     <div>
       <div className="flex items-start gap-2">
-        <span className="min-w-0 flex-1 text-sm font-medium">{task.title}</span>
+        <span className="min-w-0 flex-1 text-sm font-medium">
+          {task.recurring_id && (
+            <span className="text-indigo-500" title="周期任务">
+              ↻{' '}
+            </span>
+          )}
+          {task.title}
+        </span>
         <span className="shrink-0 text-xs text-slate-500">{fmtDuration(duration)}</span>
       </div>
       <div className="mt-0.5 flex flex-wrap items-center gap-1">

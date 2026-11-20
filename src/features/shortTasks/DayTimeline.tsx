@@ -344,6 +344,7 @@ function Block({
       onPointerUp={up}
       onPointerCancel={() => setDrag(null)}
     >
+      {task.recurring_id && <span title="周期任务">↻ </span>}
       <span className="font-medium">{task.title}</span>{' '}
       <span className="opacity-80">
         {fmtMin(startMin)}-{fmtMin(startMin + task.duration_min)}

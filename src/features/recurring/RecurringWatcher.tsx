@@ -7,7 +7,7 @@ import { applyRecurring, resolveRecurringConflict } from '../../db/repo';
 import { fmtMin, msToDayMin, WEEKDAYS } from '../../lib/dates';
 import { useStore } from '../../lib/store';
 import { useNow } from '../../lib/useNow';
-import { syncStatus } from '../../sync/syncEngine';
+import { sessionStore, syncStatus } from '../../sync/syncEngine';
 import { planRecurring, type Conflict } from './plan';
 
 /** 先写入不冲突的改动，再取下一个冲突 */
@@ -27,14 +27,17 @@ const fmtRange = (start: number, end: number) =>
 export function RecurringWatcher() {
   const now = useNow(60_000);
   const status = useStore(syncStatus);
+  const session = useStore(sessionStore);
   const rules = useLiveQuery(() => db.recurring_tasks.toArray(), []);
   // 含已删除的行：用来判断某个实例是否生成过
   const tasks = useLiveQuery(() => db.short_tasks.toArray(), []);
   const busy = useRef(false);
   const [batch, setBatch] = useState(false);
 
-  // 同步途中可能只拉到了一部分数据，等同步结束再生成，避免把别的设备已处理过的实例重新排入
-  const ready = rules && tasks && status !== 'syncing';
+  // 登录后要等本次打开页面的同步结束（成功或失败）再生成：同步前或同步途中本地数据不全，
+  // 会把别的设备已处理过的冲突再问一遍。刚打开页面时状态是 offline 而不是 syncing，所以不能只排除 syncing
+  const synced = !session || status === 'ok' || status === 'error';
+  const ready = rules && tasks && synced;
   const plan = ready ? planRecurring(rules, tasks, now) : null;
   const pendingWrites = !!plan && (plan.add.length > 0 || plan.remove.length > 0);
   const conflict = plan && !pendingWrites ? plan.conflicts[0] : undefined;

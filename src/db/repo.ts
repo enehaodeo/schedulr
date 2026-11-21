@@ -222,6 +222,20 @@ export async function resolveRecurringConflict(occ: Occurrence, clashes: string[
   changed();
 }
 
+/** 周期任务的实例到点结束后直接视为完成（放入垃圾桶），不再询问 */
+export async function completeExpiredRecurring(now: number) {
+  const expired = await db.short_tasks
+    .where('status')
+    .equals('scheduled')
+    .filter((t) => !t.deleted && !!t.recurring_id && t.end_at !== null && t.end_at <= now)
+    .toArray();
+  if (!expired.length) return;
+  await db.transaction('rw', db.short_tasks, async () => {
+    for (const t of expired) await db.short_tasks.update(t.id, stamp({ status: 'trash' as const }));
+  });
+  changed();
+}
+
 // ---------- 排序 ----------
 
 export async function reorder(table: 'long_tasks' | 'short_tasks', orderedIds: string[]) {

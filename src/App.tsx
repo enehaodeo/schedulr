@@ -4,6 +4,7 @@ import { Toaster } from './components/toast';
 import { getProfile } from './db/repo';
 import { ExpiryWatcher } from './features/expiry/ExpiryWatcher';
 import { useInboxCount } from './features/public/inbox';
+import { RecurringWatcher } from './features/recurring/RecurringWatcher';
 import { ReminderWatcher } from './features/reminders/ReminderWatcher';
 import { useStore } from './lib/store';
 import AccountPage from './routes/AccountPage';
@@ -80,6 +81,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
+      <RecurringWatcher />
       <ExpiryWatcher />
       <ReminderWatcher />
       <Toaster />

@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable, type Table } from 'dexie';
-import type { Availability, LongTask, ShortTask, SyncMeta, SyncTable } from './types';
+import type { Availability, LongTask, RecurringTask, ShortTask, SyncMeta, SyncTable } from './types';
 
 export interface MetaRow {
   key: string;
@@ -10,6 +10,7 @@ class SchedulrDB extends Dexie {
   long_tasks!: EntityTable<LongTask, 'id'>;
   short_tasks!: EntityTable<ShortTask, 'id'>;
   availability!: EntityTable<Availability, 'id'>;
+  recurring_tasks!: EntityTable<RecurringTask, 'id'>;
   meta!: EntityTable<MetaRow, 'key'>;
 
   constructor() {
@@ -20,6 +21,19 @@ class SchedulrDB extends Dexie {
       availability: 'id, kind, weekday, date, dirty',
       meta: 'key',
     });
+    this.version(2)
+      .stores({
+        short_tasks: 'id, status, dirty, parent_id, sort_order, start_at, recurring_id',
+        recurring_tasks: 'id, dirty',
+      })
+      .upgrade((tx) =>
+        tx
+          .table('short_tasks')
+          .toCollection()
+          .modify((t) => {
+            if (t.recurring_id === undefined) t.recurring_id = null;
+          }),
+      );
   }
 }
 

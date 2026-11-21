@@ -35,6 +35,23 @@ export interface ShortTask extends SyncMeta {
   start_at: number | null;
   end_at: number | null;
   source_public_id: string | null;
+  /** 由周期任务生成时指向 recurring_tasks.id */
+  recurring_id: string | null;
+}
+
+/** 周期短期任务：每周固定几天的固定时段，自动生成日程中的短期任务 */
+export interface RecurringTask extends SyncMeta {
+  title: string;
+  tags: string[];
+  /** 0 = 周日 … 6 = 周六 */
+  weekdays: number[];
+  /** 当天分钟数 */
+  start_min: number;
+  end_min: number;
+  /** yyyy-MM-dd */
+  start_date: string;
+  /** yyyy-MM-dd，可选，含当天 */
+  end_date: string | null;
 }
 
 export interface Availability extends SyncMeta {
@@ -54,8 +71,8 @@ export interface Profile {
   dirty: 0 | 1;
 }
 
-export type SyncTable = 'long_tasks' | 'short_tasks' | 'availability';
-export const SYNC_TABLES: SyncTable[] = ['long_tasks', 'short_tasks', 'availability'];
+export type SyncTable = 'long_tasks' | 'short_tasks' | 'availability' | 'recurring_tasks';
+export const SYNC_TABLES: SyncTable[] = ['long_tasks', 'short_tasks', 'availability', 'recurring_tasks'];
 
 export interface PublicPayloadLong {
   title: string;

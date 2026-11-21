@@ -116,8 +116,9 @@ export async function syncNow(): Promise<void> {
 }
 
 async function clearLocal() {
-  await db.transaction('rw', [db.long_tasks, db.short_tasks, db.availability, db.meta], async () => {
-    await Promise.all([db.long_tasks.clear(), db.short_tasks.clear(), db.availability.clear(), db.meta.clear()]);
+  const tables = [db.long_tasks, db.short_tasks, db.availability, db.recurring_tasks, db.meta];
+  await db.transaction('rw', tables, async () => {
+    await Promise.all(tables.map((t) => t.clear()));
   });
 }
 

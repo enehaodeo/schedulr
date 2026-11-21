@@ -1,13 +1,14 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { format } from 'date-fns';
+import { useEffect } from 'react';
 import { Modal } from '../../components/Modal';
 import { db } from '../../db/dexie';
-import { settleParent, updateLongTask, updateShortTask } from '../../db/repo';
+import { completeExpiredRecurring, settleParent, updateLongTask, updateShortTask } from '../../db/repo';
 import { todayStr } from '../../lib/dates';
 import { useNow } from '../../lib/useNow';
 import { endDate, isLongExpired } from '../longTasks/gantt';
 
-/** 到期后逐个询问完成 / 未完成 */
+/** 到期后逐个询问完成 / 未完成；周期任务的实例自动视为完成 */
 export function ExpiryWatcher() {
   const now = useNow(30_000);
   const today = todayStr(now);
@@ -21,10 +22,14 @@ export function ExpiryWatcher() {
       db.short_tasks
         .where('status')
         .equals('scheduled')
-        .filter((t) => !t.deleted && t.end_at !== null && t.end_at <= now)
+        .filter((t) => !t.deleted && !t.recurring_id && t.end_at !== null && t.end_at <= now)
         .first(),
     [now],
   );
+
+  useEffect(() => {
+    void completeExpiredRecurring(now);
+  }, [now]);
 
   if (long) {
     return (

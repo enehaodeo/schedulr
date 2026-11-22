@@ -6,10 +6,12 @@ import { createStore, useStore } from '../../lib/store';
 import { supabase } from '../../supabase/client';
 import { sessionStore } from '../../sync/syncEngine';
 
+export type PublicAction = 'added' | 'trashed' | 'dismissed';
+
 export interface InboxState {
   tasks: PublicTask[];
-  /** public_task_id -> 'added' | 'trashed' */
-  actions: Record<string, 'added' | 'trashed'>;
+  /** public_task_id -> 处理结果；dismissed 是在垃圾桶里彻底删除，之后哪里都不显示 */
+  actions: Record<string, PublicAction>;
   loaded: boolean;
 }
 
@@ -64,7 +66,7 @@ export async function publishPublicTask(
   return true;
 }
 
-export async function setAction(publicTaskId: string, action: 'added' | 'trashed' | null) {
+export async function setAction(publicTaskId: string, action: PublicAction | null) {
   const session = sessionStore.get();
   if (!supabase || !session) return;
   const { error } =

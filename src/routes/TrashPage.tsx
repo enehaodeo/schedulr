@@ -23,9 +23,10 @@ export default function TrashPage() {
   }
 
   async function emptyTrash() {
-    if (!confirm('彻底删除垃圾桶里的所有个人任务？')) return;
+    if (!confirm('彻底删除垃圾桶里的所有任务？')) return;
     for (const t of long) await purge('long_tasks', t.id);
     for (const t of trashedShort) await purge('short_tasks', t.id);
+    for (const t of trashedPublic) await setAction(t.id, 'dismissed');
   }
 
   const empty = !long.length && !trashedShort.length && !trashedPublic.length;
@@ -34,7 +35,7 @@ export default function TrashPage() {
     <div className="space-y-6">
       <div className="flex items-center">
         <h2 className="mr-auto font-semibold">垃圾桶</h2>
-        {(long.length > 0 || trashedShort.length > 0) && (
+        {!empty && (
           <button className="btn-danger" onClick={emptyTrash}>
             清空
           </button>
@@ -110,6 +111,9 @@ export default function TrashPage() {
                   </button>
                   <button className="btn-xs" onClick={() => setAction(t.id, null)}>
                     放回收件箱
+                  </button>
+                  <button className="btn-xs text-rose-600" onClick={() => setAction(t.id, 'dismissed')}>
+                    彻底删除
                   </button>
                 </div>
               </div>
